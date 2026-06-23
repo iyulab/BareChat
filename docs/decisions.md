@@ -132,10 +132,22 @@ BareChat v1.2 기준 확정 설계 결정. 각 항목은 **결정 / 맥락 / 대
 
 ---
 
+## D11 — 커스터마이징 주권 (브랜딩)
+
+**결정.** 호스트가 **리빌드 없이** 앱 이름·색상·아이콘을 소유한다. 이름/색상은 `BareChatOptions.Branding`(config 바인딩), 아이콘은 `{DataPath}/branding/` 파일 드롭(없으면 내장 기본). PWA `manifest.webmanifest` 를 동적 생성해 설치 이름/아이콘을 즉시 제공한다. `[권장]`
+
+**맥락.** 자사/납품처마다 "A Company MES Chat" 처럼 브랜드가 다르다. 호스트 자산을 라이브러리 어셈블리에 넣으면 브랜드 변경마다 리빌드가 필요해 주권이 깨진다. 이름/색상은 generic 1급 수요(도메인 개념 아님)이라 옵션에 두는 것이 정당(데맨드-드리븐 위반 아님).
+
+**대안.** (1) 아이콘 어셈블리 임베드 — 리빌드 필요, 주권 상실. (2) 별도 브랜딩 서버 — 과설계.
+
+**결과.** `Branding.AppName` 등은 무설정 기본("BareChat")으로 동작하고, 아이콘은 DataPath 파일로 교체. manifest 는 Service Worker(P2)와 독립이라 지금 제공. SW·설치 프롬프트·웹푸시는 P2. 가이드 → [customization.md](customization.md).
+
+---
+
 ## 결정 → 마일스톤 매핑
 
 | 마일스톤 | 포함 결정 |
 |---|---|
-| **M1** | D0(A), D1(InApp+NativeBridge), D3(쿠키/브리지), D4, D5, D6(필드), D7(seam), D8, **D9(채널 CRUD·멤버십)**, **D10(zero-config DataPath)** |
+| **M1** | D0(A), D1(InApp+NativeBridge), D3(쿠키/브리지), D4, D5, D6(필드), D7(seam), D8, **D9(채널 CRUD·멤버십)**, **D10(zero-config DataPath)**, **D11(브랜딩: 이름·색상·아이콘·manifest)** |
 | **M2** | D0(B), D1(WebPush), D2(presence 본격), D5(Client SDK) |
 | **M3** | 세션 간 unread, D0(C), D6(편집 UI), **D9 확장(private 채널·역할)**, D7(권한 본격) |

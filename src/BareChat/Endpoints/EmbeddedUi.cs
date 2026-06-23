@@ -1,7 +1,9 @@
+using System.Net;
 using System.Reflection;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Options;
 
 namespace BareChat.Endpoints;
 
@@ -15,10 +17,14 @@ public static class EmbeddedUi
     {
         var shellPath = prefix.Length == 0 ? "/" : prefix;
 
-        // The app shell: index.html with the route prefix injected.
-        app.MapGet(shellPath, () =>
+        // The app shell: index.html with route prefix + branding injected.
+        app.MapGet(shellPath, (IOptions<BareChatOptions> opt) =>
         {
-            var html = ReadText("index.html").Replace("{{BASE}}", prefix);
+            var b = opt.Value.Branding;
+            var html = ReadText("index.html")
+                .Replace("{{BASE}}", prefix)
+                .Replace("{{APP_NAME}}", WebUtility.HtmlEncode(b.AppName))
+                .Replace("{{THEME_COLOR}}", WebUtility.HtmlEncode(b.ThemeColor));
             return Results.Content(html, "text/html; charset=utf-8");
         });
 

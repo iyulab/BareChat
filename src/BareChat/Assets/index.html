@@ -3,17 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#111827">
-  <title>BareChat</title>
+  <meta name="theme-color" content="{{THEME_COLOR}}">
+  <title>{{APP_NAME}}</title>
+  <link rel="manifest" href="{{BASE}}/manifest.webmanifest">
+  <link rel="icon" href="{{BASE}}/branding/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{BASE}}/branding/icon-192.png">
   <link rel="stylesheet" href="{{BASE}}/app.css">
-  <script>window.BARECHAT_BASE = "{{BASE}}";</script>
+  <script>
+    window.BARECHAT_BASE = "{{BASE}}";
+    window.BARECHAT_APP_NAME = "{{APP_NAME}}";
+  </script>
 </head>
 <body>
   <div id="app" class="app">
     <!-- Channel list view -->
     <section id="list-view" class="view view--active">
       <header class="topbar">
-        <h1 class="topbar__title">Channels</h1>
+        <h1 class="topbar__title">{{APP_NAME}}</h1>
         <button id="new-channel" class="iconbtn" title="New channel" aria-label="New channel">+</button>
       </header>
       <ul id="channel-list" class="channels"></ul>

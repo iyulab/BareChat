@@ -14,6 +14,9 @@ builder.Services.AddBareChat(options =>
 {
     // DataPath defaults to App_Data/barechat under the content root (zero-config).
     options.RoutePrefix = "/chat";
+    options.Branding.AppName = "A Company MES Chat";
+    options.Branding.ShortName = "MES Chat";
+    options.Branding.ThemeColor = "#0f766e";
 });
 
 var app = builder.Build();

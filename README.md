@@ -26,6 +26,7 @@ app.UseBareChat();                // /chat 하위에 채팅 전체가 마운트�
 - **단일 미들웨어 마운트** — `UseBareChat()` 하나로 Hub·API·임베디드 UI 전부 공급
 - **zero-config 인프라** — `DataPath` 단일 설정에 `chat.db`(SQLite)와 `blobs/`가 함께 보관. 무설정으로 기본 작동, 필요 시만 지정
 - **채널 채팅** — 공개 채널 자유 생성·참여(슬랙형). 기본 채널은 삭제 불가, 멤버십은 영속 구독(내 채널 목록 + 알림 대상)
+- **커스터마이징 주권** — 앱 이름·색상은 `Branding` 옵션, 아이콘은 `{DataPath}/branding/` 파일 드롭(리빌드 불필요). PWA 설치 이름/아이콘용 `manifest.webmanifest` 동적 생성. → [커스터마이징 가이드](docs/customization.md)
 - **추상 인프라** — 스토리지/채널/블롭/인증/인가/알림/프레즌스가 전부 인터페이스. 기본 구현(SQLite + 파일시스템 + 인메모리)을 끼고 시작, 필요 시 교체
 - **초경량 모바일 Vanilla UI** — 가상 DOM 프레임워크 없이 선언적 렌더, 채널 목록 ↔ 대화 2-뷰 네비게이션, UI 코드 100KB 미만(SignalR 클라이언트 제외)
 - **실시간 + 폴백** — SignalR 기반 WebSockets → SSE → Long Polling 자동 폴백
@@ -99,7 +100,8 @@ WPF 앱의 사이드패널에 WebView2로 BareChat UI를 로드. 새 메시지 �
 | [docs/decisions.md](docs/decisions.md) | 설계 결정 레지스터 (ADR-lite) |
 | [docs/notifications.md](docs/notifications.md) | 라이브 전달 vs 깨우기 알림, `INotificationChannel` |
 | [docs/bridge-protocol.md](docs/bridge-protocol.md) | WebView2 ↔ WPF 네이티브 브리지 계약 |
-| [docs/integration-guide.md](docs/integration-guide.md) | 두 시나리오 통합 절차 + 코드 |
+| [docs/integration-guide.md](docs/integration-guide.md) | 두 시나리오 통합 절차 + 코드 + API 표면 |
+| [docs/customization.md](docs/customization.md) | 브랜딩 커스터마이징(앱 이름·색상·아이콘·PWA manifest) |
 
 ---
 

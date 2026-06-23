@@ -29,4 +29,29 @@ public sealed class BareChatOptions
 
     /// <summary>Display name of the default channel.</summary>
     public string DefaultChannelName { get; set; } = "General";
+
+    /// <summary>Host-controlled branding (app name, colors). Icons are dropped into <c>{DataPath}/branding</c>.</summary>
+    public BrandingOptions Branding { get; set; } = new();
+}
+
+/// <summary>
+/// Branding the host owns without rebuilding the library. Name/colors are config; icons override via files
+/// in <c>{DataPath}/branding</c> (<c>icon-192.png</c>, <c>icon-512.png</c>) and fall back to an embedded default.
+/// </summary>
+public sealed class BrandingOptions
+{
+    /// <summary>In-app name and PWA install name. Shown in the UI header and document title.</summary>
+    public string AppName { get; set; } = "BareChat";
+
+    /// <summary>PWA short_name. Defaults to <see cref="AppName"/> when unset.</summary>
+    public string? ShortName { get; set; }
+
+    /// <summary>Theme/accent color (manifest theme_color, browser UI). CSS color.</summary>
+    public string ThemeColor { get; set; } = "#111827";
+
+    /// <summary>Background color used on the PWA splash (manifest background_color). CSS color.</summary>
+    public string BackgroundColor { get; set; } = "#0b0f19";
+
+    /// <summary>Effective PWA short name.</summary>
+    public string EffectiveShortName => string.IsNullOrWhiteSpace(ShortName) ? AppName : ShortName;
 }

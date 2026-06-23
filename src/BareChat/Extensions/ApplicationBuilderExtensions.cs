@@ -23,6 +23,7 @@ public static class ApplicationBuilderExtensions
 
         app.MapHub<ChatHub>($"{prefix}/hub");
         app.MapChatApi(prefix);
+        app.MapBranding(prefix);
         app.MapEmbeddedUi(prefix);
 
         return app;
