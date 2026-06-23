@@ -1,0 +1,21 @@
+<Project>
+
+  <!-- Chain to the repo-root props, then add library-only settings (not applied to samples/tests). -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- Emit XML docs so public `///` comments flow to consumer IntelliSense. CS1591 (undocumented public
+         member) is informational here, not a build blocker. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- Centralized package metadata (0.x per versioning policy; majors are a manual/community decision). -->
+    <Version>0.1.0</Version>
+    <Authors>iyulab</Authors>
+    <Product>BareChat</Product>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/iyulab/BareChat</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/iyulab/BareChat</PackageProjectUrl>
+  </PropertyGroup>
+
+</Project>

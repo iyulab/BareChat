@@ -73,6 +73,22 @@ public class AddBareChatTests : IDisposable
         Assert.NotNull(sp.GetService<IChatAuthProvider>());
     }
 
+    [Fact]
+    public void ConfigureSignalR_hook_is_invoked_for_backplane_wiring()
+    {
+        var invoked = false;
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddSingleton<IHostEnvironment>(new StubEnvironment { ContentRootPath = _dir });
+
+        services.AddBareChat(
+            o => o.DataPath = Path.Combine(_dir, "data"),
+            signalR => { Assert.NotNull(signalR); invoked = true; });   // where a host would AddStackExchangeRedis(...)
+
+        Assert.True(invoked);
+    }
+
     public void Dispose()
     {
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();

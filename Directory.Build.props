@@ -1,0 +1,11 @@
+<Project>
+
+  <!-- Common build settings for every project in the repo (TFM, language, nullability). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+</Project>

@@ -20,7 +20,15 @@ public sealed class DevAuthHandler : AuthenticationHandler<AuthenticationSchemeO
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        // Cookie for same-origin browsers; Bearer for cross-origin/WebView2 (the token = the dev username here).
+        // UseBareChatAccessToken() lifts ?access_token= into this header for the hub path.
         if (!Request.Cookies.TryGetValue(CookieName, out var user) || string.IsNullOrWhiteSpace(user))
+        {
+            var authHeader = Request.Headers.Authorization.ToString();
+            if (authHeader.StartsWith("Bearer ", StringComparison.Ordinal))
+                user = authHeader["Bearer ".Length..].Trim();
+        }
+        if (string.IsNullOrWhiteSpace(user))
             return Task.FromResult(AuthenticateResult.NoResult());
 
         var claims = new[]

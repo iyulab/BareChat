@@ -243,6 +243,98 @@
     await ensureConnected();
   }
 
+  // ---------- PWA shell (?shell=pwa only) ----------
+  const shellMode = new URLSearchParams(location.search).get("shell");
+  function registerServiceWorker() {
+    if (shellMode !== "pwa" || !("serviceWorker" in navigator)) return;
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register(BASE + "/sw.js", { scope: BASE + "/" })
+        .then(() => { if ("Notification" in window && Notification.permission === "granted") subscribePush(); })
+        .catch(() => { });
+    });
+    // A click on a push notification asks the SW to focus the relevant channel.
+    navigator.serviceWorker.addEventListener("message", (e) => {
+      const msg = e.data || {};
+      if (msg.type === "focusChannel" && msg.channelId) {
+        const ch = state.channels.find((c) => c.id === msg.channelId);
+        if (ch) openChannel(ch);
+      }
+    });
+  }
+
+  // Notification permission: requested only in the pwa shell, only when undecided, only once per
+  // session, and only off a real user gesture (browsers penalize on-load prompts). On grant we subscribe.
+  let notifRequested = false;
+  function requestNotifications() {
+    if (shellMode !== "pwa" || !("Notification" in window)) return;
+    if (Notification.permission !== "default" || notifRequested) return;
+    notifRequested = true;
+    try {
+      Notification.requestPermission().then((p) => { if (p === "granted") subscribePush(); }).catch(() => { });
+    } catch { }
+  }
+
+  // Register this browser's push subscription with the server (no-op when push isn't configured → 404).
+  async function subscribePush() {
+    if (shellMode !== "pwa" || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    try {
+      const res = await fetch(BASE + "/api/push/vapid-public-key", { credentials: "same-origin" });
+      if (!res.ok) return;                       // push disabled on the server
+      const { publicKey } = await res.json();
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey)
+        });
+      }
+      await fetch(BASE + "/api/push/subscriptions", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub)
+      });
+    } catch { /* push is best-effort */ }
+  }
+
+  function urlBase64ToUint8Array(base64) {
+    const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+    const normalized = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(normalized);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  // Install affordance: capture the deferred prompt, reveal the button, prompt on click.
+  let deferredInstall = null;
+  function setupInstallPrompt() {
+    if (shellMode !== "pwa") return;
+    const btn = $("install");
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredInstall = e;
+      if (btn) btn.hidden = false;
+    });
+    window.addEventListener("appinstalled", () => {
+      deferredInstall = null;
+      if (btn) btn.hidden = true;
+      requestNotifications();
+    });
+    if (btn) btn.addEventListener("click", async () => {
+      if (!deferredInstall) return;
+      deferredInstall.prompt();
+      try { await deferredInstall.userChoice; } catch { }
+      deferredInstall = null;
+      btn.hidden = true;
+      requestNotifications();
+    });
+    // Already-installed (standalone) sessions never fire beforeinstallprompt — arm a one-shot
+    // gesture listener so we can still ask for notifications without an on-load prompt.
+    const armOnGesture = () => { document.removeEventListener("click", armOnGesture); requestNotifications(); };
+    document.addEventListener("click", armOnGesture, { once: true });
+  }
+
   // ---------- wiring ----------
   $("back").addEventListener("click", async () => { showList(); await loadChannels(); });
   $("new-channel").addEventListener("click", async () => {
@@ -269,6 +361,8 @@
   // learn our own id: first message we send is echoed back; capture senderId of any message
   // whose senderName matches — instead, derive "me" from a lightweight whoami endpoint.
   (async function boot() {
+    registerServiceWorker();
+    setupInstallPrompt();
     bridge.init();
     try {
       const me = await getJson("/api/whoami");

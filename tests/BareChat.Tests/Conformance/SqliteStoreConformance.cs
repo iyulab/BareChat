@@ -40,6 +40,13 @@ public class SqliteChatStorageTests : ChatStorageConformanceTests, IDisposable
     public void Dispose() => _db.Dispose();
 }
 
+public class SqlitePushSubscriptionStoreTests : PushSubscriptionStoreConformanceTests, IDisposable
+{
+    private readonly SqliteTestDb _db = new();
+    protected override IPushSubscriptionStore CreateStore() => new SqlitePushSubscriptionStore(_db.Factory);
+    public void Dispose() => _db.Dispose();
+}
+
 public class FileSystemBlobStoreTests : BlobStoreConformanceTests, IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "barechat-tests", Guid.NewGuid().ToString("N"));

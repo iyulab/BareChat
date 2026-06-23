@@ -71,6 +71,16 @@ public sealed class SqliteConnectionFactory
 
             CREATE INDEX IF NOT EXISTS ix_messages_channel_created
                 ON messages (channel_id, created_at_utc);
+
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                endpoint       TEXT PRIMARY KEY,
+                p256dh         TEXT NOT NULL,
+                auth           TEXT NOT NULL,
+                user_id        TEXT NOT NULL,
+                created_at_utc TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS ix_push_user ON push_subscriptions (user_id);
             """;
         cmd.ExecuteNonQuery();
     }

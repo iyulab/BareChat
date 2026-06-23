@@ -30,8 +30,13 @@ app.UseBareChat();                // /chat 하위에 채팅 전체가 마운트�
 - **추상 인프라** — 스토리지/채널/블롭/인증/인가/알림/프레즌스가 전부 인터페이스. 기본 구현(SQLite + 파일시스템 + 인메모리)을 끼고 시작, 필요 시 교체
 - **초경량 모바일 Vanilla UI** — 가상 DOM 프레임워크 없이 선언적 렌더, 채널 목록 ↔ 대화 2-뷰 네비게이션, UI 코드 100KB 미만(SignalR 클라이언트 제외)
 - **실시간 + 폴백** — SignalR 기반 WebSockets → SSE → Long Polling 자동 폴백
+- **설치형 PWA** — `?shell=pwa` 에서 Service Worker 등록(오프라인 앱셸 캐시, 자산 해시 기반 자동 캐시 무효화), 설치 프롬프트, 제스처 기반 알림 권한 요청
+- **백그라운드 웹푸시(VAPID)** — VAPID 키 한 쌍만 설정하면 오프라인 멤버에게 `WebPushChannel` 로 깨우기 알림. 미설정 시 자동 비활성(zero-config 유지). 폐쇄망에선 네이티브 브리지가 동급 대체
 - **프로그래밍 방식 발행** — `POST /chat/messages` REST 엔드포인트로 시스템 이벤트를 채널에 주입(채팅을 **이벤트 피드**로도 사용)
 - **클라이언트 측 이미지 최적화** — 업로드 전 Canvas 리사이즈/압축으로 서버 부하 0
+- **크로스오리진 토큰 인증** — `UseBareChatAccessToken()` 으로 WebSocket 핸드셰이크의 `?access_token=` 을 Bearer 헤더로 승격(scheme-agnostic, JWT 패키지 비강제)
+- **백엔드용 .NET 클라이언트 SDK** — `BareChat.Client` 로 브라우저 없이 구독·송신·발행(장비 서비스·빌드 에이전트 등)
+- **스케일아웃 대비** — `AddBareChat(..., configureSignalR)` 로 SignalR 백플레인(Redis 등) 결선 훅 제공
 
 ---
 
@@ -39,8 +44,9 @@ app.UseBareChat();                // /chat 하위에 채팅 전체가 마운트�
 
 | 패키지 | 내용 | 종속성 |
 |---|---|---|
-| **`BareChat.Core`** | 도메인 엔티티(`ChatMessage`, `Channel`, `ChannelMembership`), 인터페이스(`IChannelStore`, `IChatStorageProvider`, `IChatAuthProvider`, `INotificationChannel` 등), 추상 팩토리 | 외부 인프라 종속성 제로 |
-| **`BareChat`** | SignalR Hub, API Controllers, 임베디드 UI 미들웨어, SQLite 기본 공급자 포함 일체형 | ASP.NET Core (`net10.0`) |
+| **`BareChat.Core`** | 도메인 엔티티(`ChatMessage`, `Channel`, `ChannelMembership`, `PushSubscription`), 인터페이스(`IChannelStore`, `IChatStorageProvider`, `IChatAuthProvider`, `INotificationChannel`, `IWakeUpNotificationChannel`, `IPushSubscriptionStore`, `IPresenceTracker` 등) | 외부 인프라 종속성 제로 |
+| **`BareChat`** | SignalR Hub, REST API, 임베디드 UI/Service Worker, SQLite·인메모리 공급자, `WebPushChannel`(VAPID), 토큰 인증 미들웨어 | ASP.NET Core (`net10.0`), Lib.Net.Http.WebPush |
+| **`BareChat.Client`** | 백엔드 프로세스용 얇은 SignalR + REST 클라이언트 SDK(구독/송신/발행) | `BareChat.Core` + SignalR.Client (`net10.0`) |
 
 ---
 
@@ -78,6 +84,38 @@ app.Run();
 | `/chat?shell=webview` | WPF(WebView2) 사이드패널 + 네이티브 브리지 |
 | `/chat?shell=iframe` | 레거시 웹앱 임베드 (best-effort) |
 
+### PWA 웹푸시 / 크로스오리진 토큰 인증 활성화 (선택)
+
+```csharp
+builder.Services.AddBareChat(options =>
+{
+    options.Push.PublicKey  = "<VAPID public key (base64url)>";   // 미설정 시 푸시 자동 비활성
+    options.Push.PrivateKey = "<VAPID private key (base64url)>";
+    options.Push.Subject    = "mailto:admin@yourcompany.com";
+},
+configureSignalR: signalR => signalR /* .AddStackExchangeRedis("...") */);   // (선택) 스케일아웃 백플레인
+
+var app = builder.Build();
+app.UseBareChatAccessToken();   // (선택) 인증 앞: WS 핸드셰이크의 ?access_token= 을 Bearer 로 승격
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseBareChat();
+```
+
+백엔드 프로세스에서 채널에 참여·발행하려면 `BareChat.Client` SDK를 사용합니다:
+
+```csharp
+await using var client = new BareChatClient(new BareChatClientOptions
+{
+    BaseAddress = new Uri("https://host/"),
+    AccessTokenProvider = () => myToken          // 크로스오리진 시
+});
+client.MessageReceived += m => Console.WriteLine($"{m.SenderName}: {m.Payload}");
+await client.ConnectAsync();
+await client.SubscribeAsync("general");
+await client.PublishAsync("general", "build #42 succeeded");   // REST 이벤트 피드
+```
+
 ---
 
 ## 두 가지 주요 시나리오
@@ -107,8 +145,8 @@ WPF 앱의 사이드패널에 WebView2로 BareChat UI를 로드. 새 메시지 �
 
 ## 마일스톤
 
-- **M1 — 코어 + 채널 + WPF 완성:** Hub + 추상 스토리지 + **채널 CRUD·멤버십** + zero-config(`DataPath`) + 모바일 임베디드 Vanilla UI + `shell` 스위치 + REST publish + 네이티브 브리지(JS측). 푸시·SW 없음 → **시나리오 2 거의 완성.**
-- **M2 — PWA 푸시:** `shell=pwa` 경로 = Service Worker + VAPID + subscription-store + `WebPushChannel`. → **시나리오 1 완성.**
+- **M1 — 코어 + 채널 + WPF (완료):** Hub + 추상 스토리지 + **채널 CRUD·멤버십** + zero-config(`DataPath`) + 모바일 임베디드 Vanilla UI + `shell` 스위치 + REST publish + 네이티브 브리지(JS측). → **시나리오 2 거의 완성.**
+- **M2 — PWA 푸시 & 분산 (완료):** `shell=pwa` Service Worker(오프라인 캐시·설치·알림 권한) + VAPID subscription-store + `WebPushChannel` + 서버측 `?access_token=` 인증 + `BareChat.Client` SDK + SignalR 백플레인 훅. → **시나리오 1 완성.** (분산 presence 구현체는 수요 기반 향후 작업.)
 - **M3 — 하드닝:** 세션 간 unread(`lastReadAt`), private 채널·역할/권한, 크로스오리진 iframe best-effort, soft-delete UI.
 
 ---

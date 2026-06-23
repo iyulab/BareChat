@@ -22,6 +22,8 @@ public class BrandingTests : IClassFixture<ChatApp>
         Assert.Equal("MES Chat", m.GetProperty("short_name").GetString());
         Assert.Equal("#0f766e", m.GetProperty("theme_color").GetString());
         Assert.Equal("standalone", m.GetProperty("display").GetString());
+        Assert.Equal("/chat/?shell=pwa", m.GetProperty("start_url").GetString());
+        Assert.Equal("/chat/", m.GetProperty("scope").GetString());
         Assert.True(m.GetProperty("icons").GetArrayLength() >= 1);
     }
 

@@ -136,3 +136,46 @@ await httpClient.PostAsJsonAsync($"{baseUrl}/chat/messages", new
 | 네이티브 브리지 뱃지 | ❌ | ✅ |
 | REST publish | 사용 가능 | ✅ 핵심 |
 | 백그라운드 알림 | 웹푸시 | 없음(앱 생존 한정) |
+---
+
+## 부록 — P2 (M2) API 표면
+
+### PWA / Service Worker
+| 엔드포인트 | 설명 |
+|---|---|
+| `GET /chat/sw.js` | Service Worker(템플릿 `BASE`·자산 해시 버전 주입). scope `/chat/` 로 애드온 격리 |
+| `GET /chat/manifest.webmanifest` | `start_url=/chat/?shell=pwa`, `scope=/chat/`. 설치 이름/색상/아이콘 |
+
+`?shell=pwa` 에서만 SW 등록 + 설치 프롬프트(`beforeinstallprompt`) + 제스처 기반 `Notification.requestPermission()` + 푸시 구독. 오프라인 시 앱셸은 캐시에서 서빙(라이브 데이터 `/api`·`/hub` 는 항상 네트워크).
+
+### 웹푸시 (VAPID)
+설정: `options.Push.PublicKey/PrivateKey/Subject` (미설정 시 푸시 자동 비활성).
+
+| 엔드포인트 | 설명 |
+|---|---|
+| `GET /chat/api/push/vapid-public-key` | 구독용 VAPID 공개키(`{publicKey}`). 미설정 시 404 |
+| `POST /chat/api/push/subscriptions` `{endpoint, keys:{p256dh, auth}}` | 현재 유저 구독 저장(인증 필수, 소유자=서버 컨텍스트) |
+| `DELETE /chat/api/push/subscriptions` `{endpoint}` | 구독 제거 |
+
+오프라인 멤버는 `MessagePublisher` → `WebPushChannel`(wake-up)로 라우팅. 푸시 서비스가 gone(404/410) 보고 시 구독 자동 prune. SW `push` → `showNotification`, `notificationclick` → 해당 채널 포커스(`postMessage{focusChannel}`).
+
+### 크로스오리진 토큰 인증
+`app.UseBareChatAccessToken();` 를 `UseAuthentication()` **앞**에 배치. hub 경로(`/chat/hub`) 요청의 `?access_token=` 을 `Authorization: Bearer` 로 승격(기존 헤더 미덮어쓰기, scheme-agnostic). 호스트의 bearer 인증 스킴이 WS 연결을 인증.
+
+### .NET 클라이언트 SDK (`BareChat.Client`)
+```csharp
+await using var client = new BareChatClient(new BareChatClientOptions
+{
+    BaseAddress = new Uri("https://host/"),
+    RoutePrefix = "/chat",
+    AccessTokenProvider = () => token   // 크로스오리진 시(hub ?access_token= + REST Bearer)
+});
+client.MessageReceived += m => { /* ChatMessage */ };
+await client.ConnectAsync();
+await client.SubscribeAsync("general");          // JoinChannel
+await client.SendTextAsync("general", "hi");     // SendMessage(라이브)
+await client.PublishAsync("general", "event");   // REST publish(System, 소켓 불필요)
+```
+
+### 스케일아웃 백플레인
+`AddBareChat(configure, configureSignalR: sr => sr.AddStackExchangeRedis(conn))` 로 SignalR 백플레인 결선(Redis 패키지는 호스트 종속성). 멀티노드 wake-up 정확성을 위해 분산 `IPresenceTracker` 구현체 필요(seam 준비됨, 구현은 P3).

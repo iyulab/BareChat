@@ -32,6 +32,28 @@ public sealed class BareChatOptions
 
     /// <summary>Host-controlled branding (app name, colors). Icons are dropped into <c>{DataPath}/branding</c>.</summary>
     public BrandingOptions Branding { get; set; } = new();
+
+    /// <summary>Web Push (VAPID) configuration. Push stays off until a key pair is supplied.</summary>
+    public PushOptions Push { get; set; } = new();
+}
+
+/// <summary>
+/// Web Push (VAPID, RFC 8292) settings. Supply a base64url-encoded P-256 key pair to enable background
+/// wake-up notifications for the PWA. Generate once and keep the private key secret. Off when unset.
+/// </summary>
+public sealed class PushOptions
+{
+    /// <summary>VAPID public key (base64url, uncompressed P-256 point). Shared with clients to subscribe.</summary>
+    public string? PublicKey { get; set; }
+
+    /// <summary>VAPID private key (base64url). Secret — signs push requests.</summary>
+    public string? PrivateKey { get; set; }
+
+    /// <summary>VAPID subject: a <c>mailto:</c> or <c>https:</c> contact the push service can reach. Required by some services.</summary>
+    public string Subject { get; set; } = "mailto:admin@example.com";
+
+    /// <summary>True once a usable key pair is configured.</summary>
+    public bool Enabled => !string.IsNullOrWhiteSpace(PublicKey) && !string.IsNullOrWhiteSpace(PrivateKey);
 }
 
 /// <summary>

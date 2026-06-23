@@ -21,6 +21,7 @@ builder.Services.AddBareChat(options =>
 
 var app = builder.Build();
 
+app.UseBareChatAccessToken();  // before auth: lift ?access_token= → Bearer for the hub (cross-origin/WebView2)
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseBareChat();   // after auth so the host user context is inherited

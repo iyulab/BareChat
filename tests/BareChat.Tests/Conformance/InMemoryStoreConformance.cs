@@ -17,3 +17,8 @@ public class InMemoryBlobStoreConformance : BlobStoreConformanceTests
 {
     protected override IBlobStore CreateStore() => new InMemoryBlobStore();
 }
+
+public class InMemoryPushSubscriptionStoreConformance : PushSubscriptionStoreConformanceTests
+{
+    protected override IPushSubscriptionStore CreateStore() => new InMemoryPushSubscriptionStore();
+}

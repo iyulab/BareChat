@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- TFM/Nullable/ImplicitUsings/LangVersion and package metadata come from Directory.Build.props. -->
+  <PropertyGroup>
+    <Description>BareChat .NET client SDK: thin SignalR + REST wrapper for backend processes.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BareChat.Core\BareChat.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -35,7 +35,8 @@ public static class BrandingEndpoints
             {
                 name = b.AppName,
                 short_name = b.EffectiveShortName,
-                start_url = prefix.Length == 0 ? "/" : prefix + "/",
+                // Installed app boots into the PWA shell so it registers the SW and asks for notifications.
+                start_url = (prefix.Length == 0 ? "/" : prefix + "/") + "?shell=pwa",
                 scope = prefix.Length == 0 ? "/" : prefix + "/",
                 display = "standalone",
                 theme_color = b.ThemeColor,
