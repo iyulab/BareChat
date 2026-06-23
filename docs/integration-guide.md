@@ -114,8 +114,8 @@ await httpClient.PostAsJsonAsync($"{baseUrl}/chat/messages", new
 | `DELETE /chat/api/channels/{id}` | 삭제(생성자만, 기본 채널 불가) |
 | `GET /chat/api/channels/{id}/messages?limit&before` | 메시지 히스토리(oldest-first) |
 | `POST /chat/messages` `{channelId, payload, contentType?}` | 프로그래밍 발행(기본 `System`, 이벤트 피드) |
-| `POST /chat/api/upload` (multipart `file`) | 이미지 업로드 → `{blobId, url}` |
-| `GET /chat/api/blobs/{id}` | blob 스트리밍 |
+| `POST /chat/api/upload` (multipart `file`) | 이미지 업로드 → `{blobId, url}`. **매직바이트 스니핑 + 화이트리스트(PNG/JPEG/GIF/WebP만)** — 클라이언트 Content-Type 무시, SVG/HTML 거부 |
+| `GET /chat/api/blobs/{id}` | blob 스트리밍. `X-Content-Type-Options: nosniff` + `Content-Security-Policy: default-src 'none'; sandbox` (stored XSS 방어) |
 
 ### SignalR Hub (`/chat/hub`)
 - 클라이언트 호출: `SendMessage(channelId, text)` · `SendImage(channelId, url)` · `JoinChannel(channelId)` · `LeaveChannel(channelId)`

@@ -125,17 +125,33 @@ public static class ChatApiEndpoints
             if (file.Length > opt.Value.MaxImageSizeInBytes)
                 return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
 
-            await using var stream = file.OpenReadStream();
-            var info = await blobs.SaveAsync(stream, string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType, file.FileName);
+            // Never trust the client-supplied Content-Type: sniff magic bytes and allow only raster images.
+            // (text/html or image/svg+xml served same-origin would be stored XSS.)
+            using var buffer = new MemoryStream();
+            await using (var raw = file.OpenReadStream())
+                await raw.CopyToAsync(buffer);
+            var sniffed = ImageContentTypes.Detect(buffer.GetBuffer().AsSpan(0, (int)buffer.Length));
+            if (sniffed is null)
+                return Results.BadRequest(new { error = "Only PNG, JPEG, GIF or WebP images are allowed." });
+
+            buffer.Position = 0;
+            var info = await blobs.SaveAsync(buffer, sniffed, file.FileName);
             return Results.Ok(new { blobId = info.BlobId, url = $"{prefix}/api/blobs/{info.BlobId}", contentType = info.ContentType, size = info.Size });
         }).DisableAntiforgery();
 
-        api.MapGet("/blobs/{id}", async (string id, IBlobStore blobs) =>
+        api.MapGet("/blobs/{id}", async (string id, HttpContext http, IBlobStore blobs) =>
         {
             var info = await blobs.GetInfoAsync(id);
             if (info is null) return Results.NotFound();
             var stream = await blobs.OpenReadAsync(id);
-            return stream is null ? Results.NotFound() : Results.Stream(stream, info.ContentType);
+            if (stream is null) return Results.NotFound();
+
+            // Defense-in-depth on serve: stored type is already an allowlisted raster image, but block
+            // MIME sniffing and sandbox the response so a blob can never execute as active content.
+            http.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            http.Response.Headers["Content-Security-Policy"] = "default-src 'none'; sandbox";
+            http.Response.Headers["Content-Disposition"] = "inline";
+            return Results.Stream(stream, info.ContentType);
         });
 
         // Programmatic publish (event feed). Default content type = System.
