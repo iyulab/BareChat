@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/BareChat.Sample/BareChat.Sample.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/BareChat.Core/BareChat.Core.csproj" />
+    <Project Path="src/BareChat/BareChat.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BareChat.Tests/BareChat.Tests.csproj" />
+  </Folder>
+</Solution>

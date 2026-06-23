@@ -1,0 +1,25 @@
+# Local
+CLAUDE.md
+claudedocs/
+
+# .NET build artifacts
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+*.user
+.vs/
+
+# Test results
+[Tt]est[Rr]esults/
+*.trx
+
+# Runtime data (DataPath default lands under host content root)
+App_Data/
+*.db
+*.db-shm
+*.db-wal
+
+# Tooling artifacts
+.playwright-mcp/
+e2e-*.png
