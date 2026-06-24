@@ -9,7 +9,7 @@
     current: null,        // channelId
     connection: null,
     me: null,             // resolved senderId once we send/receive
-    caps: { canEditMessages: true, canDeleteMessages: true }   // host policy; refined at boot
+    caps: { canEditMessages: true, canDeleteMessages: true, canRenderMarkdown: false }   // host policy; refined at boot
   };
 
   // ---------- REST ----------
@@ -19,6 +19,136 @@
     return res;
   }
   const getJson = async (p) => (await api(p)).json();
+
+  // ---------- dialogs (self-contained modal/toast — no native prompt/confirm/alert) ----------
+  // Mobile-app feel: focus-trapped sheet, ESC / overlay-tap to cancel, restores prior focus.
+  // XSS-safe (textContent only). Function declarations are hoisted so callers above can use them.
+  function showToast(message, kind) {
+    let root = $("toast-root");
+    if (!root) { root = document.createElement("div"); root.id = "toast-root"; root.className = "toasts"; document.body.appendChild(root); }
+    const t = document.createElement("div");
+    t.className = "toast toast--" + (kind || "info");
+    t.setAttribute("role", "status");
+    t.textContent = message;
+    root.appendChild(t);
+    requestAnimationFrame(() => t.classList.add("is-in"));
+    const remove = () => { t.classList.remove("is-in"); t.addEventListener("transitionend", () => t.remove(), { once: true }); };
+    const timer = setTimeout(remove, 3200);
+    t.addEventListener("click", () => { clearTimeout(timer); remove(); });
+  }
+
+  // Generic modal shell. `build(card, close)` fills the card and wires submit/cancel via close(value).
+  function openModal(build) {
+    return new Promise((resolve) => {
+      const prevFocus = document.activeElement;
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      const card = document.createElement("div");
+      card.className = "modal";
+      card.setAttribute("role", "dialog");
+      card.setAttribute("aria-modal", "true");
+      card.setAttribute("aria-labelledby", "modal-title");
+      overlay.appendChild(card);
+
+      let settled = false;
+      const close = (value) => {
+        if (settled) return; settled = true;
+        document.removeEventListener("keydown", onKey, true);
+        overlay.classList.remove("is-in");
+        overlay.addEventListener("transitionend", () => overlay.remove(), { once: true });
+        if (prevFocus && prevFocus.focus) { try { prevFocus.focus(); } catch { } }
+        resolve(value);
+      };
+
+      const focusable = () => Array.from(card.querySelectorAll('input,button,textarea,select,[tabindex]:not([tabindex="-1"])'))
+        .filter((el) => !el.disabled && el.offsetParent !== null);
+      function onKey(e) {
+        if (e.key === "Escape") { e.preventDefault(); close(null); return; }
+        if (e.key !== "Tab") return;
+        const f = focusable(); if (!f.length) return;
+        const first = f[0], last = f[f.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+      overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) close(null); });
+      document.addEventListener("keydown", onKey, true);
+
+      build(card, close);
+      document.body.appendChild(overlay);
+      requestAnimationFrame(() => overlay.classList.add("is-in"));
+      const auto = card.querySelector("[data-autofocus]") || focusable()[0];
+      if (auto) auto.focus();
+    });
+  }
+
+  // Footer with Cancel + primary action. The primary button submits the card's form.
+  function modalActions(close, okLabel, danger) {
+    const row = document.createElement("div");
+    row.className = "modal__actions";
+    const cancel = document.createElement("button");
+    cancel.type = "button"; cancel.className = "modal__btn"; cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => close(null));
+    const ok = document.createElement("button");
+    ok.type = "submit"; ok.className = "modal__btn modal__btn--primary" + (danger ? " modal__btn--danger" : "");
+    ok.textContent = okLabel || "OK";
+    row.append(cancel, ok);
+    return row;
+  }
+
+  // Confirmation modal → resolves true on confirm, null (falsy) on cancel/ESC/overlay.
+  function showConfirm({ title, message, okLabel, danger }) {
+    return openModal((card, close) => {
+      const form = document.createElement("form");
+      const h = document.createElement("h2"); h.className = "modal__title"; h.id = "modal-title"; h.textContent = title;
+      form.appendChild(h);
+      if (message) { const p = document.createElement("p"); p.className = "modal__msg"; p.textContent = message; form.appendChild(p); }
+      form.appendChild(modalActions(close, okLabel || "OK", danger));
+      form.querySelector(".modal__btn--primary").setAttribute("data-autofocus", "");
+      form.addEventListener("submit", (e) => { e.preventDefault(); close(true); });
+      card.appendChild(form);
+    });
+  }
+
+  // Form modal → resolves a {name: value} object on submit, null on cancel.
+  // fields: [{ name, label?, type: "text"|"checkbox", value?, placeholder?, autofocus? }]
+  function showForm({ title, fields, okLabel }) {
+    return openModal((card, close) => {
+      const form = document.createElement("form");
+      const h = document.createElement("h2"); h.className = "modal__title"; h.id = "modal-title"; h.textContent = title;
+      form.appendChild(h);
+      const inputs = {};
+      for (const f of fields) {
+        const input = document.createElement("input");
+        input.type = f.type === "checkbox" ? "checkbox" : "text";
+        if (f.placeholder) input.placeholder = f.placeholder;
+        if (f.autofocus) input.setAttribute("data-autofocus", "");
+        if (f.type === "checkbox") input.checked = !!f.value; else input.value = f.value || "";
+        inputs[f.name] = input;
+        if (f.type === "checkbox") {
+          const label = document.createElement("label"); label.className = "modal__check";
+          const span = document.createElement("span"); span.textContent = f.label || f.name;
+          label.append(input, span); form.appendChild(label);
+        } else {
+          if (f.label) { const label = document.createElement("label"); label.className = "modal__label"; label.textContent = f.label; form.appendChild(label); }
+          input.className = "modal__input"; form.appendChild(input);
+        }
+      }
+      form.appendChild(modalActions(close, okLabel || "OK", false));
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const out = {};
+        for (const f of fields) out[f.name] = f.type === "checkbox" ? inputs[f.name].checked : inputs[f.name].value;
+        close(out);
+      });
+      card.appendChild(form);
+    });
+  }
+
+  // Single-text-field convenience → resolves the entered string, or null on cancel.
+  async function showPrompt({ title, value, placeholder, okLabel }) {
+    const r = await showForm({ title, okLabel, fields: [{ name: "v", type: "text", value, placeholder, autofocus: true }] });
+    return r ? r.v : null;
+  }
 
   // ---------- views ----------
   function showList() {
@@ -41,8 +171,14 @@
     if (!el) return;
     const ch = state.channels.find((c) => c.id === channelId);
     const n = ch && ch.isMember ? (ch.unreadCount || 0) : 0;
-    if (n > 0) { el.textContent = n > 99 ? "99+" : String(n); el.hidden = false; }
-    else { el.hidden = true; }
+    if (n > 0) {
+      el.textContent = n > 99 ? "99+" : String(n);
+      el.setAttribute("aria-label", `${n} unread message${n === 1 ? "" : "s"}`);   // screen readers read intent, not "3"
+      el.hidden = false;
+    } else {
+      el.removeAttribute("aria-label");
+      el.hidden = true;
+    }
   }
 
   // Total cross-session unread across my channels → drives the WebView2 native badge.
@@ -54,12 +190,39 @@
     bridge.post({ type: "unread", count: bridge.unread });
   }
 
-  // Mark a channel read: clear its badge locally, persist server-side (fire-and-forget).
-  async function markRead(channelId) {
+  // Local-only read reset: clear the badge and recompute the native total. No network.
+  function resetUnreadLocal(channelId) {
     const ch = state.channels.find((c) => c.id === channelId);
     if (ch) { ch.unreadCount = 0; renderBadge(channelId); }
     pushBridgeTotal();
+  }
+
+  // Debounced server-side read persist (lastReadAt = server now). While actively watching a channel,
+  // messages can stream in rapidly — without this we'd POST /read once per message (chatty). The exact
+  // persist moment doesn't affect correctness (unread = others' messages after lastReadAt).
+  let readPersistTimer = null;
+  let pendingReadChannel = null;
+  function persistReadDebounced(channelId, delay = 1000) {
+    pendingReadChannel = channelId;
+    clearTimeout(readPersistTimer);
+    readPersistTimer = setTimeout(() => {
+      const id = pendingReadChannel; pendingReadChannel = null; readPersistTimer = null;
+      if (id) api(`/api/channels/${encodeURIComponent(id)}/read`, { method: "POST" }).catch(() => { });
+    }, delay);
+  }
+
+  // Explicit read (channel opened / panel re-focused): reset locally and persist immediately so the
+  // cross-session pointer is reliable even if the app closes right after.
+  async function markRead(channelId) {
+    clearTimeout(readPersistTimer); pendingReadChannel = null; readPersistTimer = null;
+    resetUnreadLocal(channelId);
     try { await api(`/api/channels/${encodeURIComponent(channelId)}/read`, { method: "POST" }); } catch { }
+  }
+
+  // Streaming read (a message arrived in the channel I'm watching): reset locally now, persist debounced.
+  function markReadStreaming(channelId) {
+    resetUnreadLocal(channelId);
+    persistReadDebounced(channelId);
   }
 
   async function loadChannels() {
@@ -174,7 +337,9 @@
     } else {
       content = document.createElement("div");
       content.className = "msg__text";
-      content.textContent = m.payload;   // XSS-safe
+      // Default: plain text (XSS-safe escape). Markdown is opt-in and still XSS-safe (DOM-built, no innerHTML).
+      if (state.caps.canRenderMarkdown) appendInlineMarkdown(content, m.payload);
+      else content.textContent = m.payload;
     }
 
     const time = document.createElement("div");
@@ -212,25 +377,68 @@
   }
 
   async function editMessage(m) {
-    const next = prompt("Edit message", m.payload);
+    const next = await showPrompt({ title: "Edit message", value: m.payload, okLabel: "Save" });
     if (next == null || next.trim() === "" || next === m.payload) return;
     const res = await api(`/api/messages/${encodeURIComponent(m.messageId)}`, { method: "PUT", body: JSON.stringify({ payload: next }) });
-    if (!res.ok) { alert("Edit failed."); return; }
+    if (!res.ok) { showToast("Edit failed.", "error"); return; }
     const updated = await res.json();
     const el = findMessageEl(m.messageId);
     if (el) renderMessage(el, updated);
   }
 
   async function deleteMessage(m) {
-    if (!confirm("Delete this message?")) return;
+    if (!(await showConfirm({ title: "Delete message", message: "This can't be undone.", okLabel: "Delete", danger: true }))) return;
     const res = await api(`/api/messages/${encodeURIComponent(m.messageId)}`, { method: "DELETE" });
-    if (!res.ok) { alert("Delete failed."); return; }
+    if (!res.ok) { showToast("Delete failed.", "error"); return; }
     const updated = await res.json();
     const el = findMessageEl(m.messageId);
     if (el) renderMessage(el, updated);
   }
 
   function isOwnBlobUrl(url) { return typeof url === "string" && url.startsWith(BASE + "/api/blobs/"); }
+
+  // ---------- inline markdown (opt-in; XSS-safe by construction — builds DOM nodes, never innerHTML) ----------
+  // Safe subset: **bold**, *italic*, `code`, [label](url), and bare http(s) autolinks. Only http(s)/mailto
+  // links are emitted; any other scheme (javascript:, data:, …) falls back to literal text. Underscore
+  // emphasis is intentionally omitted so identifiers like snake_case render literally.
+  const MD_RULES = [
+    { re: /`([^`]+)`/, tag: "code", literal: true },           // code first — its content is literal
+    { re: /\[([^\]]+)\]\(([^)\s]+)\)/, link: true },           // [label](url)
+    { re: /\*\*([^*]+)\*\*/, tag: "strong" },                  // **bold** (before *italic*)
+    { re: /\*([^*]+)\*/, tag: "em" },                          // *italic*
+    { re: /(https?:\/\/[^\s]+)/, autolink: true }              // bare url
+  ];
+
+  function makeLink(url, label) {
+    if (!/^(https?:|mailto:)/i.test(url)) return document.createTextNode(label);   // reject unsafe schemes
+    const a = document.createElement("a");
+    a.href = url; a.textContent = label;
+    a.target = "_blank"; a.rel = "noopener noreferrer"; a.className = "msg__link";
+    return a;
+  }
+
+  // Append `text` to `parent` as a mix of text nodes and safe inline elements. Recurses for nested emphasis.
+  function appendInlineMarkdown(parent, text) {
+    while (text.length) {
+      let best = null;
+      for (const rule of MD_RULES) {
+        rule.re.lastIndex = 0;
+        const m = rule.re.exec(text);
+        if (m && (best === null || m.index < best.m.index)) best = { rule, m };
+      }
+      if (best === null) { parent.appendChild(document.createTextNode(text)); return; }
+      const { rule, m } = best;
+      if (m.index > 0) parent.appendChild(document.createTextNode(text.slice(0, m.index)));
+      if (rule.autolink) parent.appendChild(makeLink(m[1], m[1]));
+      else if (rule.link) parent.appendChild(makeLink(m[2], m[1]));
+      else {
+        const el = document.createElement(rule.tag);
+        if (rule.literal) el.textContent = m[1]; else appendInlineMarkdown(el, m[1]);
+        parent.appendChild(el);
+      }
+      text = text.slice(m.index + m[0].length);
+    }
+  }
 
   function formatTime(iso) {
     try { return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
@@ -251,7 +459,7 @@
       if (m.channelId === state.current && bridge.panelVisible) {
         appendMessage(m);
         scrollToBottom();
-        markRead(m.channelId);   // keep the read pointer current while watching
+        markReadStreaming(m.channelId);   // keep the read pointer current while watching (debounced persist)
       } else {
         // Live unread for a channel I'm not looking at — never count my own messages.
         const ch = state.channels.find((c) => c.id === m.channelId);
@@ -270,7 +478,13 @@
       if (el) renderMessage(el, m);
     });
 
-    const setConn = (online) => $("conn").classList.toggle("is-online", online);
+    // Toggle the visual dot and expose the state to assistive tech (the color alone isn't perceivable;
+    // role=status + aria-live announces transitions). WCAG 1.4.1 / 4.1.2 / 4.1.3.
+    const setConn = (online) => {
+      const el = $("conn");
+      el.classList.toggle("is-online", online);
+      el.setAttribute("aria-label", online ? "Connected" : "Disconnected");
+    };
     conn.onreconnecting(() => setConn(false));
     conn.onreconnected(() => setConn(true));
     conn.onclose(() => setConn(false));
@@ -292,7 +506,7 @@
     const form = new FormData();
     form.append("file", blob, (file.name || "image").replace(/\.[^.]+$/, "") + ".jpg");
     const res = await fetch(BASE + "/api/upload", { method: "POST", credentials: "same-origin", body: form });
-    if (!res.ok) { alert("Upload failed."); return; }
+    if (!res.ok) { showToast("Upload failed.", "error"); return; }
     const { url } = await res.json();
     await ensureConnected();
     await state.connection.invoke("SendImage", state.current, url);
@@ -451,21 +665,29 @@
   // ---------- wiring ----------
   $("back").addEventListener("click", async () => { showList(); await loadChannels(); });
   $("new-channel").addEventListener("click", async () => {
-    const name = prompt("New channel name");
+    // Name + private toggle in one form (replaces the old prompt→confirm two-step).
+    const result = await showForm({
+      title: "New channel", okLabel: "Create",
+      fields: [
+        { name: "name", label: "Channel name", type: "text", placeholder: "e.g. general", autofocus: true },
+        { name: "isPrivate", label: "Private — only people you add can see it", type: "checkbox" }
+      ]
+    });
+    if (!result) return;
+    const name = (result.name || "").trim();
     if (!name) return;
-    const isPrivate = confirm("Make this channel private?\n\nOK = private (only people you add can see it)\nCancel = public");
-    const res = await api("/api/channels", { method: "POST", body: JSON.stringify({ name, isPrivate }) });
+    const res = await api("/api/channels", { method: "POST", body: JSON.stringify({ name, isPrivate: result.isPrivate }) });
     if (res.ok) await loadChannels();
-    else if (res.status === 409) alert("A channel with that name already exists.");
+    else if (res.status === 409) showToast("A channel with that name already exists.", "error");
   });
   $("add-member").addEventListener("click", async () => {
     if (!state.current) return;
-    const userId = prompt("Add member (user id)");
+    const userId = await showPrompt({ title: "Add member", placeholder: "user id", okLabel: "Add" });
     if (!userId || !userId.trim()) return;
     const res = await api(`/api/channels/${encodeURIComponent(state.current)}/members`, { method: "POST", body: JSON.stringify({ userId: userId.trim() }) });
-    if (res.ok) alert(`Added ${userId.trim()}.`);
-    else if (res.status === 403) alert("Only the channel creator can add members.");
-    else alert("Could not add member.");
+    if (res.ok) showToast(`Added ${userId.trim()}.`, "success");
+    else if (res.status === 403) showToast("Only the channel creator can add members.", "error");
+    else showToast("Could not add member.", "error");
   });
   $("composer").addEventListener("submit", async (e) => {
     e.preventDefault();

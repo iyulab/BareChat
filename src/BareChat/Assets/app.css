@@ -86,6 +86,14 @@ body {
 .msg--mine .msg__time { color: rgba(255,255,255,.7); }
 .msg--deleted { color: var(--muted); font-style: italic; background: var(--surface); }
 
+/* inline markdown (opt-in) */
+.msg__link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.msg--mine .msg__link { color: var(--accent-ink); }
+.msg__text code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 0.9em;
+  background: rgba(127, 127, 127, .22); padding: 1px 5px; border-radius: 5px;
+}
+
 /* author affordances (edit/delete) — toggled by tapping your own message. Tap-to-reveal works on
    touch (no hover) and desktop alike; kept in normal flow so they never get clipped or intercepted. */
 .msg[data-own-text="1"] { cursor: pointer; }
@@ -113,3 +121,54 @@ body {
   width: 40px; height: 40px; border-radius: 50%; font-size: 16px; cursor: pointer; flex: none;
 }
 .empty { color: var(--muted); text-align: center; padding: 28px 16px; }
+
+/* dialogs — modal sheet + toasts (self-contained, replaces native prompt/confirm/alert) */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: flex-end; justify-content: center;
+  background: rgba(0, 0, 0, .5); opacity: 0; transition: opacity .18s ease;
+  padding: 0 12px calc(env(safe-area-inset-bottom) + 12px);
+}
+.modal-overlay.is-in { opacity: 1; }
+.modal {
+  width: 100%; max-width: 420px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+  padding: 18px 18px 14px; box-shadow: 0 -8px 40px rgba(0, 0, 0, .5);
+  transform: translateY(16px); transition: transform .2s ease;
+}
+.modal-overlay.is-in .modal { transform: translateY(0); }
+@media (min-width: 480px) { .modal-overlay { align-items: center; padding-bottom: 12px; } }
+.modal__title { font-size: 17px; font-weight: 600; margin: 0 0 10px; }
+.modal__msg { color: var(--muted); margin: 0 0 14px; font-size: 14px; }
+.modal__label { display: block; color: var(--muted); font-size: 12.5px; margin: 0 0 5px; }
+.modal__input {
+  width: 100%; background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 15px; outline: none;
+}
+.modal__input:focus { border-color: var(--accent); }
+.modal__check { display: flex; align-items: center; gap: 9px; margin: 12px 0 2px; font-size: 14px; cursor: pointer; }
+.modal__check input { width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.modal__actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+.modal__btn {
+  appearance: none; border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+  border-radius: 9px; padding: 9px 16px; font-size: 14px; cursor: pointer; font-weight: 500;
+}
+.modal__btn:hover { background: var(--surface); }
+.modal__btn--primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.modal__btn--primary:hover { filter: brightness(1.08); background: var(--accent); }
+.modal__btn--danger { border-color: #ef4444; background: #ef4444; }
+
+.toasts {
+  position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 16px); z-index: 60;
+  display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none;
+}
+.toast {
+  pointer-events: auto; max-width: min(420px, 90vw);
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 10px; padding: 11px 16px; font-size: 14px; cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, .4);
+  opacity: 0; transform: translateY(10px); transition: opacity .18s ease, transform .18s ease;
+}
+.toast.is-in { opacity: 1; transform: translateY(0); }
+.toast--error { border-color: #ef4444; }
+.toast--success { border-color: #22c55e; }

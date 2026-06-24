@@ -52,6 +52,14 @@ public sealed class MessageOptions
 
     /// <summary>Allow authors to delete (soft-tombstone) their own messages. Default true.</summary>
     public bool AllowDeletion { get; set; } = true;
+
+    /// <summary>
+    /// Render a safe inline-markdown subset (bold, italic, code, links) in text messages instead of plain
+    /// text. Default <c>false</c> — opt-in. The client renderer builds DOM nodes directly (no <c>innerHTML</c>)
+    /// and only emits <c>http(s)/mailto</c> links, so enabling it does not relax the "<c>Payload</c> is
+    /// untrusted" rule. The server never interprets the payload; this flag only gates client rendering.
+    /// </summary>
+    public bool AllowMarkdown { get; set; } = false;
 }
 
 /// <summary>

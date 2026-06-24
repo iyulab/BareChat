@@ -51,22 +51,35 @@ public class PrivateChannelTests : IClassFixture<ChatApp>
         var client = _app.CreateClient();
         var id = await CreatePrivate(client, "alice", "No Peeking");
 
+        // Existence-hiding: a non-member can't distinguish a private channel they can't see from a
+        // non-existent one — both return 404, never 403 (a 403 would leak that the channel exists).
         var read = await client.SendAsync(Req(HttpMethod.Get, $"/chat/api/channels/{id}/messages", "bob"));
-        Assert.Equal(HttpStatusCode.Forbidden, read.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
 
         var write = await client.SendAsync(Req(HttpMethod.Post, "/chat/messages", "bob",
             new { channelId = id, payload = "intrusion", contentType = "Text" }));
-        Assert.Equal(HttpStatusCode.Forbidden, write.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, write.StatusCode);
     }
 
     [Fact]
-    public async Task Private_channel_cannot_be_self_joined()
+    public async Task Private_channel_existence_is_hidden_across_all_operations()
     {
         var client = _app.CreateClient();
-        var id = await CreatePrivate(client, "alice", "Members Only");
+        var id = await CreatePrivate(client, "alice", "Ghost Room");
 
-        var join = await client.SendAsync(Req(HttpMethod.Post, $"/chat/api/channels/{id}/join", "bob"));
-        Assert.Equal(HttpStatusCode.Forbidden, join.StatusCode);
+        // Every per-channel operation a non-member attempts must look identical to a non-existent channel.
+        foreach (var (method, url, body) in new (HttpMethod, string, object?)[]
+        {
+            (HttpMethod.Post, $"/chat/api/channels/{id}/join", null),
+            (HttpMethod.Post, $"/chat/api/channels/{id}/leave", null),
+            (HttpMethod.Post, $"/chat/api/channels/{id}/read", null),
+            (HttpMethod.Delete, $"/chat/api/channels/{id}", null),
+            (HttpMethod.Post, $"/chat/api/channels/{id}/members", (object?)new { userId = "carol" }),
+        })
+        {
+            var resp = await client.SendAsync(Req(method, url, "bob", body));
+            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        }
     }
 
     [Fact]
@@ -85,10 +98,14 @@ public class PrivateChannelTests : IClassFixture<ChatApp>
     }
 
     [Fact]
-    public async Task Non_creator_cannot_invite()
+    public async Task Non_creator_member_cannot_invite()
     {
         var client = _app.CreateClient();
         var id = await CreatePrivate(client, "alice", "Closed Club");
+        // bob is a member (invited), but membership ≠ management: only the creator can invite. A member
+        // can see the channel, so this is an honest 403 (not the existence-hiding 404 a non-member gets).
+        var add = await client.SendAsync(Req(HttpMethod.Post, $"/chat/api/channels/{id}/members", "alice", new { userId = "bob" }));
+        Assert.Equal(HttpStatusCode.NoContent, add.StatusCode);
 
         var invite = await client.SendAsync(Req(HttpMethod.Post, $"/chat/api/channels/{id}/members", "bob", new { userId = "carol" }));
         Assert.Equal(HttpStatusCode.Forbidden, invite.StatusCode);

@@ -31,12 +31,13 @@ public static class ChatApiEndpoints
 
             var all = await channels.GetChannelsAsync();
             var readBaselines = await channels.GetLastReadAtAsync(user.UserId);   // member channels only
+            var unread = await storage.CountMessagesSinceAsync(readBaselines, excludeSenderId: user.UserId);  // one batched query
             var dtos = new List<ChannelDto>(all.Count);
             foreach (var c in all)
             {
                 // Private channels are invisible to non-members (readBaselines keys == my memberships).
                 if (c.IsPrivate && !readBaselines.ContainsKey(c.ChannelId)) continue;
-                dtos.Add(await ToDtoAsync(c, readBaselines, user.UserId, storage));
+                dtos.Add(ToDto(c, readBaselines, unread));
             }
             return Results.Ok(dtos);
         });
@@ -47,9 +48,10 @@ public static class ChatApiEndpoints
             if (!user.IsAuthenticated) return Results.Unauthorized();
             var mine = await channels.GetUserChannelsAsync(user.UserId);
             var readBaselines = await channels.GetLastReadAtAsync(user.UserId);
+            var unread = await storage.CountMessagesSinceAsync(readBaselines, excludeSenderId: user.UserId);  // one batched query
             var dtos = new List<ChannelDto>(mine.Count);
             foreach (var c in mine)
-                dtos.Add(await ToDtoAsync(c, readBaselines, user.UserId, storage));
+                dtos.Add(ToDto(c, readBaselines, unread));
             return Results.Ok(dtos);
         });
 
@@ -58,7 +60,8 @@ public static class ChatApiEndpoints
         {
             var user = await auth.ResolveUserAsync(http);
             if (!user.IsAuthenticated) return Results.Unauthorized();
-            if (await channels.GetChannelAsync(id) is null) return Results.NotFound();
+            var channel = await channels.GetChannelAsync(id);
+            if (channel is null || await HiddenFromUserAsync(channels, channel, user.UserId)) return Results.NotFound();
             await channels.SetLastReadAtAsync(id, user.UserId, DateTime.UtcNow);   // no-op for non-members
             return Results.NoContent();
         });
@@ -96,8 +99,8 @@ public static class ChatApiEndpoints
             var channel = await channels.GetChannelAsync(id);
             if (channel is null) return Results.NotFound();
             // Private channels can't be self-joined — the creator must add you (invite primitive below).
-            if (channel.IsPrivate && !await channels.IsMemberAsync(id, user.UserId))
-                return Results.Forbid();
+            // To a non-member the channel is invisible, so this reads as Not Found, not Forbidden.
+            if (await HiddenFromUserAsync(channels, channel, user.UserId)) return Results.NotFound();
             await channels.JoinAsync(id, user.UserId);
             return Results.NoContent();
         });
@@ -110,7 +113,7 @@ public static class ChatApiEndpoints
             if (!user.IsAuthenticated) return Results.Unauthorized();
             if (string.IsNullOrWhiteSpace(req.UserId)) return Results.BadRequest(new { error = "userId is required." });
             var channel = await channels.GetChannelAsync(id);
-            if (channel is null) return Results.NotFound();
+            if (channel is null || await HiddenFromUserAsync(channels, channel, user.UserId)) return Results.NotFound();
             if (!string.Equals(channel.CreatedBy, user.UserId, StringComparison.Ordinal))
                 return Results.Forbid();   // only the creator manages membership
             await channels.JoinAsync(id, req.UserId.Trim());
@@ -122,7 +125,7 @@ public static class ChatApiEndpoints
             var user = await auth.ResolveUserAsync(http);
             if (!user.IsAuthenticated) return Results.Unauthorized();
             var channel = await channels.GetChannelAsync(id);
-            if (channel is null) return Results.NotFound();
+            if (channel is null || await HiddenFromUserAsync(channels, channel, user.UserId)) return Results.NotFound();
             if (channel.IsDefault) return Results.BadRequest(new { error = "The default channel cannot be left." });
             await channels.LeaveAsync(id, user.UserId);
             return Results.NoContent();
@@ -133,7 +136,7 @@ public static class ChatApiEndpoints
             var user = await auth.ResolveUserAsync(http);
             if (!user.IsAuthenticated) return Results.Unauthorized();
             var channel = await channels.GetChannelAsync(id);
-            if (channel is null) return Results.NotFound();
+            if (channel is null || await HiddenFromUserAsync(channels, channel, user.UserId)) return Results.NotFound();
             if (channel.IsDefault) return Results.BadRequest(new { error = "The default channel cannot be deleted." });
             if (!string.Equals(channel.CreatedBy, user.UserId, StringComparison.Ordinal))
                 return Results.Forbid();
@@ -149,8 +152,12 @@ public static class ChatApiEndpoints
         {
             var user = await auth.ResolveUserAsync(http);
             if (!user.IsAuthenticated) return Results.Unauthorized();
-            if (await channels.GetChannelAsync(id) is null) return Results.NotFound();
-            if (!await authz.CanReadAsync(user, id)) return Results.Forbid();
+            var channel = await channels.GetChannelAsync(id);
+            if (channel is null) return Results.NotFound();
+            // Existence-hiding: a private channel a non-member can't read is reported Not Found, not
+            // Forbidden — a 403 would leak that the (discovery-hidden) channel exists.
+            if (!await authz.CanReadAsync(user, id))
+                return channel.IsPrivate ? Results.NotFound() : Results.Forbid();
 
             var page = await storage.GetMessagesAsync(id, limit is > 0 and <= 200 ? limit.Value : 50, before);
             return Results.Ok(page.Select(MessageDto.From));
@@ -158,7 +165,12 @@ public static class ChatApiEndpoints
 
         // ---- capabilities (UI feature-gating: edit/delete policy) ----
         api.MapGet("/capabilities", (IOptions<BareChatOptions> opt) =>
-            Results.Ok(new { canEditMessages = opt.Value.Messages.AllowEditing, canDeleteMessages = opt.Value.Messages.AllowDeletion }));
+            Results.Ok(new
+            {
+                canEditMessages = opt.Value.Messages.AllowEditing,
+                canDeleteMessages = opt.Value.Messages.AllowDeletion,
+                canRenderMarkdown = opt.Value.Messages.AllowMarkdown
+            }));
 
         // ---- message edit / delete (author-only, D6; host policy can disable) ----
         api.MapPut("/messages/{id:guid}", async (
@@ -248,8 +260,11 @@ public static class ChatApiEndpoints
             var user = await auth.ResolveUserAsync(http);
             if (!user.IsAuthenticated) return Results.Unauthorized();
             if (string.IsNullOrWhiteSpace(req.ChannelId)) return Results.BadRequest(new { error = "channelId is required." });
-            if (await channels.GetChannelAsync(req.ChannelId) is null) return Results.NotFound();
-            if (!await authz.CanWriteAsync(user, req.ChannelId)) return Results.Forbid();
+            var channel = await channels.GetChannelAsync(req.ChannelId);
+            if (channel is null) return Results.NotFound();
+            // Existence-hiding (see GET messages): private + unauthorized → Not Found, not Forbidden.
+            if (!await authz.CanWriteAsync(user, req.ChannelId))
+                return channel.IsPrivate ? Results.NotFound() : Results.Forbid();
 
             var contentType = Enum.TryParse<MessageType>(req.ContentType, ignoreCase: true, out var ct) ? ct : MessageType.System;
             var saved = await publisher.PublishAsync(new ChatMessage
@@ -265,15 +280,22 @@ public static class ChatApiEndpoints
         });
     }
 
-    /// <summary>Maps a channel to its DTO, deriving the user's cross-session unread count when subscribed.</summary>
-    private static async Task<ChannelDto> ToDtoAsync(
-        Channel c, IReadOnlyDictionary<string, DateTime> readBaselines, string userId, IChatStorageProvider storage)
+    /// <summary>
+    /// Existence-hiding predicate: a private channel is invisible to non-members, so per-channel operations
+    /// must report it as Not Found rather than Forbidden — a 403 would leak that the channel exists. Public
+    /// channels are discoverable, so they are never hidden (the membership probe is skipped for them).
+    /// </summary>
+    private static async Task<bool> HiddenFromUserAsync(IChannelStore channels, Channel channel, string userId)
+        => channel.IsPrivate && !await channels.IsMemberAsync(channel.ChannelId, userId);
+
+    /// <summary>Maps a channel to its DTO, attaching the user's precomputed cross-session unread count when subscribed.</summary>
+    private static ChannelDto ToDto(
+        Channel c, IReadOnlyDictionary<string, DateTime> readBaselines, IReadOnlyDictionary<string, int> unreadByChannel)
     {
         // readBaselines contains only the user's subscribed channels → presence == membership.
-        if (!readBaselines.TryGetValue(c.ChannelId, out var since))
+        if (!readBaselines.ContainsKey(c.ChannelId))
             return ChannelDto.From(c, isMember: false);
-        var unread = await storage.CountMessagesSinceAsync(c.ChannelId, since, excludeSenderId: userId);
-        return ChannelDto.From(c, isMember: true, unread);
+        return ChannelDto.From(c, isMember: true, unreadByChannel.GetValueOrDefault(c.ChannelId));
     }
 
     internal static string Slugify(string input)

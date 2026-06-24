@@ -43,8 +43,24 @@ public class MessagePolicyTests
         return dto.GetProperty("messageId").GetString()!;
     }
 
+    /// <summary>Host with inline-markdown rendering opted in.</summary>
+    private sealed class MarkdownApp : WebApplicationFactory<Program>
+    {
+        private readonly string _dir = Path.Combine(Path.GetTempPath(), "barechat-tests", Guid.NewGuid().ToString("N"));
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.UseSetting("BareChat:DataPath", Path.Combine(_dir, "data"));
+            builder.UseSetting("BareChat:Messages:AllowMarkdown", "true");
+        }
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            if (disposing) { SqliteConnection.ClearAllPools(); try { Directory.Delete(_dir, true); } catch { } }
+        }
+    }
+
     [Fact]
-    public async Task Default_capabilities_allow_edit_and_delete()
+    public async Task Default_capabilities_allow_edit_and_delete_but_not_markdown()
     {
         using var app = new ChatApp();
         var client = app.CreateClient();
@@ -53,6 +69,17 @@ public class MessagePolicyTests
         var caps = await resp.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(caps.GetProperty("canEditMessages").GetBoolean());
         Assert.True(caps.GetProperty("canDeleteMessages").GetBoolean());
+        Assert.False(caps.GetProperty("canRenderMarkdown").GetBoolean());   // opt-in → off by default
+    }
+
+    [Fact]
+    public async Task Capabilities_reflect_enabled_markdown()
+    {
+        using var app = new MarkdownApp();
+        var client = app.CreateClient();
+        var caps = await (await client.SendAsync(Req(HttpMethod.Get, "/chat/api/capabilities", "alice")))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(caps.GetProperty("canRenderMarkdown").GetBoolean());
     }
 
     [Fact]

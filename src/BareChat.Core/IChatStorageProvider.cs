@@ -29,4 +29,23 @@ public interface IChatStorageProvider
     /// </summary>
     Task<int> CountMessagesSinceAsync(
         string channelId, DateTime afterUtc, string? excludeSenderId = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Batch variant of <see cref="CountMessagesSinceAsync(string, DateTime, string?, CancellationToken)"/>:
+    /// counts unread messages for many channels at once, each against its own read baseline
+    /// (<paramref name="baselinesByChannel"/> maps channelId → "after" timestamp). Rendering a user's channel
+    /// list needs one count per subscribed channel; this avoids the N+1 round-trips a per-channel loop incurs.
+    /// The returned dictionary has an entry for every requested channel. The default implementation loops over
+    /// the single-channel overload; backends with a query engine should override it with one set-based query.
+    /// </summary>
+    async Task<IReadOnlyDictionary<string, int>> CountMessagesSinceAsync(
+        IReadOnlyDictionary<string, DateTime> baselinesByChannel,
+        string? excludeSenderId = null,
+        CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, int>(baselinesByChannel.Count);
+        foreach (var (channelId, afterUtc) in baselinesByChannel)
+            result[channelId] = await CountMessagesSinceAsync(channelId, afterUtc, excludeSenderId, ct).ConfigureAwait(false);
+        return result;
+    }
 }

@@ -111,6 +111,44 @@ public abstract class ChatStorageConformanceTests
         Assert.Equal(1, await store.CountMessagesSinceAsync("general", T0));
     }
 
+    [Fact]
+    public async Task CountMessagesSince_batch_matches_per_channel_with_distinct_baselines()
+    {
+        var store = CreateStore();
+        // general: g-old before baseline, g-new1 after (counts), g-mine after but excluded as my own
+        await store.AddMessageAsync(Msg("general", "g-old", T0) with { SenderId = "other" });
+        await store.AddMessageAsync(Msg("general", "g-new1", T0.AddMinutes(2)) with { SenderId = "other" });
+        await store.AddMessageAsync(Msg("general", "g-mine", T0.AddMinutes(3)) with { SenderId = "me" });
+        // ops: 1 after its (later) baseline, plus a deleted one that must not count
+        await store.AddMessageAsync(Msg("ops", "o-1", T0.AddMinutes(6)) with { SenderId = "other" });
+        await store.AddMessageAsync(Msg("ops", "o-del", T0.AddMinutes(7)) with { SenderId = "other", IsDeleted = true });
+        // empty channel: subscribed but no qualifying messages → must still appear as 0
+        var baselines = new Dictionary<string, DateTime>
+        {
+            ["general"] = T0.AddMinutes(1),
+            ["ops"] = T0.AddMinutes(5),
+            ["empty"] = T0,
+        };
+
+        var batch = await store.CountMessagesSinceAsync(baselines, excludeSenderId: "me");
+
+        // every requested channel is present, and each count equals the single-channel query
+        Assert.Equal(baselines.Count, batch.Count);
+        foreach (var (channelId, since) in baselines)
+            Assert.Equal(await store.CountMessagesSinceAsync(channelId, since, excludeSenderId: "me"), batch[channelId]);
+        Assert.Equal(1, batch["general"]);   // g-new1 only (g-old before baseline, g-mine excluded)
+        Assert.Equal(1, batch["ops"]);       // o-1 only (o-del ignored)
+        Assert.Equal(0, batch["empty"]);
+    }
+
+    [Fact]
+    public async Task CountMessagesSince_batch_on_empty_input_returns_empty()
+    {
+        var store = CreateStore();
+        var batch = await store.CountMessagesSinceAsync(new Dictionary<string, DateTime>());
+        Assert.Empty(batch);
+    }
+
     // ---- update (edit / soft-delete) ----
 
     [Fact]

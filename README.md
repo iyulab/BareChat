@@ -29,6 +29,7 @@ app.UseBareChat();                // /chat 하위에 채팅 전체가 마운트�
 - **Private 채널** — 비멤버에게 비공개(목록 숨김)·self-join 불가, 생성자가 멤버 초대. 멤버십=접근권한, 모든 표면(REST·Hub·라이브·편집)에서 `IChatAuthorizationProvider` 로 강제
 - **세션 간 unread** — 서버 `lastReadAt` 기반 채널별 미읽음 뱃지("앱 껐다 켜도 N개"). 본인/삭제 메시지 제외, 라이브 증가 + WebView2 총합 연동
 - **메시지 편집/삭제** — 작성자가 자기 메시지 편집(`(edited)` 표시)·소프트 삭제(tombstone). 슬랙형 전체 이력 모델이며, 호스트가 `Messages.AllowEditing/AllowDeletion` 으로 비활성(컴플라이언스) 가능
+- **인라인 마크다운(opt-in)** — `Messages.AllowMarkdown`(기본 off)으로 `**굵게**`·`*기울임*`·`` `코드` ``·`[링크](url)`·자동링크 렌더. **서드파티 0**·DOM 직접 구성(`innerHTML` 미사용)으로 XSS-safe, http(s)/mailto 링크만 허용. 기본은 `textContent` 이스케이프 유지
 - **커스터마이징 주권** — 앱 이름·색상은 `Branding` 옵션, 아이콘은 `{DataPath}/branding/` 파일 드롭(리빌드 불필요). PWA 설치 이름/아이콘용 `manifest.webmanifest` 동적 생성. → [커스터마이징 가이드](docs/customization.md)
 - **추상 인프라** — 스토리지/채널/블롭/인증/인가/알림/프레즌스가 전부 인터페이스. 기본 구현(SQLite + 파일시스템 + 인메모리)을 끼고 시작, 필요 시 교체
 - **초경량 모바일 Vanilla UI** — 가상 DOM 프레임워크 없이 선언적 렌더, 채널 목록 ↔ 대화 2-뷰 네비게이션, UI 코드 100KB 미만(SignalR 클라이언트 제외)
@@ -150,7 +151,7 @@ WPF 앱의 사이드패널에 WebView2로 BareChat UI를 로드. 새 메시지 �
 
 - **M1 — 코어 + 채널 + WPF (완료):** Hub + 추상 스토리지 + **채널 CRUD·멤버십** + zero-config(`DataPath`) + 모바일 임베디드 Vanilla UI + `shell` 스위치 + REST publish + 네이티브 브리지(JS측). → **시나리오 2 거의 완성.**
 - **M2 — PWA 푸시 & 분산 (완료):** `shell=pwa` Service Worker(오프라인 캐시·설치·알림 권한) + VAPID subscription-store + `WebPushChannel` + 서버측 `?access_token=` 인증 + `BareChat.Client` SDK + SignalR 백플레인 훅. → **시나리오 1 완성.** (분산 presence 구현체는 수요 기반 향후 작업.)
-- **M3 — 운영/고급 (진행 중):** ✅ 세션 간 unread(`lastReadAt`) · ✅ 메시지 편집/삭제 UI + 호스트 retention 정책 · ✅ private 채널(가시성·초대·멤버십=접근권한). 남은 항목(방향): 역할/관리자 권한, 마크다운/링크 렌더(opt-in + sanitizer), 편집 이력 audit log, 분산 presence 구현체, iframe 프로파일 C(문서).
+- **M3 — 운영/고급 (진행 중):** ✅ 세션 간 unread(`lastReadAt`) · ✅ 메시지 편집/삭제 UI + 호스트 retention 정책 · ✅ private 채널(가시성·초대·멤버십=접근권한) · ✅ 공통 다이얼로그 컴포넌트(모달/토스트) · ✅ private 존재 숨김(403→404) · ✅ 인라인 마크다운(opt-in, DOM 구성 XSS-safe). 남은 항목(방향): 역할/관리자 권한, 편집 이력 audit log, 분산 presence 구현체, iframe 프로파일 C(문서).
 
 ---
 

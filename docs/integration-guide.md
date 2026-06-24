@@ -196,9 +196,11 @@ await client.PublishAsync("general", "event");   // REST publish(System, 소켓 
 |---|---|
 | `PUT /chat/api/messages/{id}` `{payload}` | 편집(작성자만·Text·미삭제). `editedAtUtc` 설정 → `MessageUpdated` 라이브 브로드캐스트. 403/400/404 |
 | `DELETE /chat/api/messages/{id}` | 소프트 삭제(작성자만, `isDeleted=true` + payload 비움) → tombstone. `MessageUpdated` 브로드캐스트 |
-| `GET /chat/api/capabilities` | `{canEditMessages, canDeleteMessages}` — UI가 affordance 게이팅 |
+| `GET /chat/api/capabilities` | `{canEditMessages, canDeleteMessages, canRenderMarkdown}` — UI가 affordance/렌더 게이팅 |
 
 호스트 정책: `options.Messages.AllowEditing/AllowDeletion`(기본 true). false면 해당 엔드포인트 403 + UI에서 affordance 숨김. 편집은 push/wake-up 미발생(조용한 편집). 라이브 `MessageUpdated` 는 온라인 멤버에 한해 전송(오프라인은 다음 히스토리 로드 시 반영).
+
+**인라인 마크다운(opt-in):** `options.Messages.AllowMarkdown`(기본 **false**). true면 텍스트 메시지를 안전 서브셋(`**bold**`·`*italic*`·`` `code` ``·`[label](url)`·http(s) autolink)으로 렌더. 클라이언트가 **DOM 노드를 직접 구성**(`innerHTML` 미사용)하고 http(s)/mailto 링크만 방출하므로 XSS-safe — 서버는 payload를 해석하지 않고 "Payload 신뢰 불가" 원칙 불변. off면 기존 `textContent` 이스케이프. 서드파티 sanitizer 의존성 없음.
 
 ### Private 채널 (D9 확장)
 `POST /chat/api/channels` 에 `{isPrivate: true}` 로 생성. private 채널은 `/channels` 목록에서 비멤버에게 숨겨지고, 읽기/쓰기/가입이 멤버십으로 게이팅(`ChannelMembershipAuthorizationProvider`).
@@ -206,7 +208,7 @@ await client.PublishAsync("general", "event");   // REST publish(System, 소켓 
 | 엔드포인트 | 설명 |
 |---|---|
 | `POST /chat/api/channels` `{name, isPrivate?}` | `isPrivate=true` → private 채널 |
-| `POST /chat/api/channels/{id}/members` `{userId}` | 멤버 초대(생성자만). private 채널 진입 유일 경로 → 204/403 |
-| `POST /chat/api/channels/{id}/join` | public은 자유 가입, **private은 비멤버 403**(Hub `JoinChannel` 도 동일 차단) |
+| `POST /chat/api/channels/{id}/members` `{userId}` | 멤버 초대(생성자만 → 비창작자 **멤버**는 403). private 채널 진입 유일 경로. 비멤버는 채널이 숨겨지므로 404 |
+| `POST /chat/api/channels/{id}/join` | public은 자유 가입. **private 비멤버는 404**(존재 숨김; Hub `JoinChannel` 도 "does not exist"로 통일) |
 
-DTO에 `isPrivate` 추가. private 비멤버의 직접 history/publish 는 authz가 거부(403).
+DTO에 `isPrivate` 추가. **존재 숨김(existence-hiding):** private 채널의 비멤버 per-channel 작업(history/publish/join/leave/read/members/delete)은 403이 아니라 **404**(비존재 채널과 구별 불가 → 채널 존재 자체를 누출하지 않음). 채널을 볼 수 있는 멤버에 대한 권한 거부(예: 비창작자의 invite)만 정직하게 403.
