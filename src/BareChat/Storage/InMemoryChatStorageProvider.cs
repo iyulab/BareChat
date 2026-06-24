@@ -33,4 +33,23 @@ public sealed class InMemoryChatStorageProvider : IChatStorageProvider
 
     public Task<ChatMessage?> GetMessageAsync(Guid messageId, CancellationToken ct = default)
         => Task.FromResult(_messages.GetValueOrDefault(messageId));
+
+    public Task<ChatMessage?> UpdateMessageAsync(ChatMessage message, CancellationToken ct = default)
+    {
+        if (!_messages.ContainsKey(message.MessageId))
+            return Task.FromResult<ChatMessage?>(null);
+        _messages[message.MessageId] = message;
+        return Task.FromResult<ChatMessage?>(message);
+    }
+
+    public Task<int> CountMessagesSinceAsync(
+        string channelId, DateTime afterUtc, string? excludeSenderId = null, CancellationToken ct = default)
+    {
+        var count = _messages.Values.Count(m =>
+            m.ChannelId == channelId
+            && m.CreatedAtUtc > afterUtc
+            && !m.IsDeleted
+            && (excludeSenderId is null || m.SenderId != excludeSenderId));
+        return Task.FromResult(count);
+    }
 }

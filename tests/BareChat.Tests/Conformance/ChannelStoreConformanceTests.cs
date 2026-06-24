@@ -32,6 +32,27 @@ public abstract class ChannelStoreConformanceTests
     }
 
     [Fact]
+    public async Task Create_round_trips_private_flag()
+    {
+        var store = CreateStore();
+        await store.CreateChannelAsync(new Channel { ChannelId = "secret", Name = "Secret", CreatedBy = "alice", IsPrivate = true });
+
+        var got = await store.GetChannelAsync("secret");
+
+        Assert.NotNull(got);
+        Assert.True(got!.IsPrivate);
+    }
+
+    [Fact]
+    public async Task Channels_default_to_public()
+    {
+        var store = CreateStore();
+        await store.CreateChannelAsync(NewChannel("open"));
+
+        Assert.False((await store.GetChannelAsync("open"))!.IsPrivate);
+    }
+
+    [Fact]
     public async Task Create_duplicate_slug_throws()
     {
         var store = CreateStore();
@@ -114,5 +135,62 @@ public abstract class ChannelStoreConformanceTests
         Assert.Equal(2, members.Count);
         Assert.Contains("alice", members);
         Assert.Contains("bob", members);
+    }
+
+    // ---- read state (cross-session unread baseline) ----
+
+    [Fact]
+    public async Task GetLastReadAt_defaults_to_join_time_when_never_marked()
+    {
+        var store = CreateStore();
+        await store.CreateChannelAsync(NewChannel("general"));
+        var before = DateTime.UtcNow.AddSeconds(-1);
+        await store.JoinAsync("general", "alice");
+        var after = DateTime.UtcNow.AddSeconds(1);
+
+        var baselines = await store.GetLastReadAtAsync("alice");
+
+        Assert.True(baselines.TryGetValue("general", out var baseline));
+        Assert.InRange(baseline, before, after);   // == join time
+    }
+
+    [Fact]
+    public async Task SetLastReadAt_overrides_baseline()
+    {
+        var store = CreateStore();
+        await store.CreateChannelAsync(NewChannel("general"));
+        await store.JoinAsync("general", "alice");
+        var marked = new DateTime(2030, 5, 1, 12, 0, 0, DateTimeKind.Utc);
+
+        await store.SetLastReadAtAsync("general", "alice", marked);
+
+        var baselines = await store.GetLastReadAtAsync("alice");
+        Assert.Equal(marked, baselines["general"]);
+    }
+
+    [Fact]
+    public async Task GetLastReadAt_only_includes_subscribed_channels()
+    {
+        var store = CreateStore();
+        await store.CreateChannelAsync(NewChannel("general"));
+        await store.CreateChannelAsync(NewChannel("random"));
+        await store.JoinAsync("general", "alice");
+
+        var baselines = await store.GetLastReadAtAsync("alice");
+
+        Assert.True(baselines.ContainsKey("general"));
+        Assert.False(baselines.ContainsKey("random"));
+    }
+
+    [Fact]
+    public async Task SetLastReadAt_is_noop_for_nonmember()
+    {
+        var store = CreateStore();
+        await store.CreateChannelAsync(NewChannel("general"));
+
+        await store.SetLastReadAtAsync("general", "stranger", DateTime.UtcNow);
+
+        var baselines = await store.GetLastReadAtAsync("stranger");
+        Assert.Empty(baselines);   // no membership → no read state retained
     }
 }

@@ -30,4 +30,17 @@ public interface IChannelStore
     Task LeaveAsync(string channelId, string userId, CancellationToken ct = default);
 
     Task<bool> IsMemberAsync(string channelId, string userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Marks how far the user has read a channel (cross-session unread baseline). A no-op when the
+    /// user is not a member — read state is an attribute of a subscription. Idempotent.
+    /// </summary>
+    Task SetLastReadAtAsync(string channelId, string userId, DateTime readAtUtc, CancellationToken ct = default);
+
+    /// <summary>
+    /// Effective last-read timestamp per subscribed channel for the user. Falls back to the membership
+    /// join time when the user has never explicitly marked a channel read — so a freshly joined user's
+    /// unread baseline is "messages since I joined", never the channel's full back-history.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, DateTime>> GetLastReadAtAsync(string userId, CancellationToken ct = default);
 }

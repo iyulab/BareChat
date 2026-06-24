@@ -1,6 +1,9 @@
+using System.Net.Http.Json;
 using BareChat.Client;
 using BareChat.Core.Domain;
 using Microsoft.AspNetCore.Http.Connections;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.SignalR.Client;
 
 namespace BareChat.Tests.Http;
 
@@ -38,6 +41,22 @@ public class BareChatClientTests : IClassFixture<ChatApp>
         Assert.Equal("alice", msg.SenderId);
         Assert.Equal("general", msg.ChannelId);
         Assert.Equal(MessageType.Text, msg.ContentType);
+    }
+
+    [Fact]
+    public async Task Hub_join_cannot_bypass_private_channel_restriction()
+    {
+        // alice creates a private channel over REST.
+        using var rest = _app.CreateClient();
+        var create = new HttpRequestMessage(HttpMethod.Post, "/chat/api/channels");
+        create.Headers.Add("Cookie", "bc_user=alice");
+        create.Content = JsonContent.Create(new { name = "hub-private", isPrivate = true });
+        (await rest.SendAsync(create)).EnsureSuccessStatusCode();
+
+        // bob (non-member) must not be able to self-join it through the hub.
+        await using var bob = NewClient("bob");
+        await bob.ConnectAsync();
+        await Assert.ThrowsAsync<HubException>(() => bob.SubscribeAsync("hub-private"));
     }
 
     [Fact]

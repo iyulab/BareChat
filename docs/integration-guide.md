@@ -178,4 +178,35 @@ await client.PublishAsync("general", "event");   // REST publish(System, 소켓 
 ```
 
 ### 스케일아웃 백플레인
-`AddBareChat(configure, configureSignalR: sr => sr.AddStackExchangeRedis(conn))` 로 SignalR 백플레인 결선(Redis 패키지는 호스트 종속성). 멀티노드 wake-up 정확성을 위해 분산 `IPresenceTracker` 구현체 필요(seam 준비됨, 구현은 P3).
+`AddBareChat(configure, configureSignalR: sr => sr.AddStackExchangeRedis(conn))` 로 SignalR 백플레인 결선(Redis 패키지는 호스트 종속성). 멀티노드 wake-up 정확성을 위해 분산 `IPresenceTracker` 구현체 필요(seam 준비됨, 구현은 수요 기반).
+
+---
+
+## 부록 — P3 (M3) API 표면
+
+### 세션 간 unread (서버 `lastReadAt`)
+`GET /chat/api/channels`·`/mine` 응답의 각 채널에 `unreadCount`(= 내 `lastReadAt` 이후, 본인·삭제 제외 메시지 수). 기준선은 `COALESCE(last_read_at, joined_at)` — 가입 이전 히스토리는 unread 아님.
+
+| 엔드포인트 | 설명 |
+|---|---|
+| `POST /chat/api/channels/{id}/read` | 채널을 현재 시각으로 읽음 처리(비멤버는 no-op) → 204 |
+
+### 메시지 편집/삭제 (작성자 전용, D6)
+| 엔드포인트 | 설명 |
+|---|---|
+| `PUT /chat/api/messages/{id}` `{payload}` | 편집(작성자만·Text·미삭제). `editedAtUtc` 설정 → `MessageUpdated` 라이브 브로드캐스트. 403/400/404 |
+| `DELETE /chat/api/messages/{id}` | 소프트 삭제(작성자만, `isDeleted=true` + payload 비움) → tombstone. `MessageUpdated` 브로드캐스트 |
+| `GET /chat/api/capabilities` | `{canEditMessages, canDeleteMessages}` — UI가 affordance 게이팅 |
+
+호스트 정책: `options.Messages.AllowEditing/AllowDeletion`(기본 true). false면 해당 엔드포인트 403 + UI에서 affordance 숨김. 편집은 push/wake-up 미발생(조용한 편집). 라이브 `MessageUpdated` 는 온라인 멤버에 한해 전송(오프라인은 다음 히스토리 로드 시 반영).
+
+### Private 채널 (D9 확장)
+`POST /chat/api/channels` 에 `{isPrivate: true}` 로 생성. private 채널은 `/channels` 목록에서 비멤버에게 숨겨지고, 읽기/쓰기/가입이 멤버십으로 게이팅(`ChannelMembershipAuthorizationProvider`).
+
+| 엔드포인트 | 설명 |
+|---|---|
+| `POST /chat/api/channels` `{name, isPrivate?}` | `isPrivate=true` → private 채널 |
+| `POST /chat/api/channels/{id}/members` `{userId}` | 멤버 초대(생성자만). private 채널 진입 유일 경로 → 204/403 |
+| `POST /chat/api/channels/{id}/join` | public은 자유 가입, **private은 비멤버 403**(Hub `JoinChannel` 도 동일 차단) |
+
+DTO에 `isPrivate` 추가. private 비멤버의 직접 history/publish 는 authz가 거부(403).

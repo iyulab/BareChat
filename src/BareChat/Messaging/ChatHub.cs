@@ -95,8 +95,13 @@ public sealed class ChatHub : Hub
     public async Task JoinChannel(string channelId)
     {
         var user = await RequireUserAsync();
-        if (await _channels.GetChannelAsync(channelId) is null)
+        var channel = await _channels.GetChannelAsync(channelId);
+        if (channel is null)
             throw new HubException($"Channel '{channelId}' does not exist.");
+        // Private channels cannot be self-joined over the hub either (mirrors the REST restriction) —
+        // the creator must add you. Without this, a client could bypass discovery hiding by guessing a slug.
+        if (channel.IsPrivate && !await _channels.IsMemberAsync(channelId, user.UserId))
+            throw new HubException("This channel is private.");
         await _channels.JoinAsync(channelId, user.UserId);
     }
 

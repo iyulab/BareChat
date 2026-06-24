@@ -24,22 +24,43 @@ public static class ChatApiEndpoints
         });
 
         // ---- channels ----
-        api.MapGet("/channels", async (HttpContext http, IChatAuthProvider auth, IChannelStore channels) =>
+        api.MapGet("/channels", async (HttpContext http, IChatAuthProvider auth, IChannelStore channels, IChatStorageProvider storage) =>
         {
             var user = await auth.ResolveUserAsync(http);
             if (!user.IsAuthenticated) return Results.Unauthorized();
 
             var all = await channels.GetChannelsAsync();
-            var mine = (await channels.GetUserChannelsAsync(user.UserId)).Select(c => c.ChannelId).ToHashSet(StringComparer.Ordinal);
-            return Results.Ok(all.Select(c => ChannelDto.From(c, mine.Contains(c.ChannelId))));
+            var readBaselines = await channels.GetLastReadAtAsync(user.UserId);   // member channels only
+            var dtos = new List<ChannelDto>(all.Count);
+            foreach (var c in all)
+            {
+                // Private channels are invisible to non-members (readBaselines keys == my memberships).
+                if (c.IsPrivate && !readBaselines.ContainsKey(c.ChannelId)) continue;
+                dtos.Add(await ToDtoAsync(c, readBaselines, user.UserId, storage));
+            }
+            return Results.Ok(dtos);
         });
 
-        api.MapGet("/channels/mine", async (HttpContext http, IChatAuthProvider auth, IChannelStore channels) =>
+        api.MapGet("/channels/mine", async (HttpContext http, IChatAuthProvider auth, IChannelStore channels, IChatStorageProvider storage) =>
         {
             var user = await auth.ResolveUserAsync(http);
             if (!user.IsAuthenticated) return Results.Unauthorized();
             var mine = await channels.GetUserChannelsAsync(user.UserId);
-            return Results.Ok(mine.Select(c => ChannelDto.From(c, isMember: true)));
+            var readBaselines = await channels.GetLastReadAtAsync(user.UserId);
+            var dtos = new List<ChannelDto>(mine.Count);
+            foreach (var c in mine)
+                dtos.Add(await ToDtoAsync(c, readBaselines, user.UserId, storage));
+            return Results.Ok(dtos);
+        });
+
+        // ---- read state (cross-session unread) ----
+        api.MapPost("/channels/{id}/read", async (string id, HttpContext http, IChatAuthProvider auth, IChannelStore channels) =>
+        {
+            var user = await auth.ResolveUserAsync(http);
+            if (!user.IsAuthenticated) return Results.Unauthorized();
+            if (await channels.GetChannelAsync(id) is null) return Results.NotFound();
+            await channels.SetLastReadAtAsync(id, user.UserId, DateTime.UtcNow);   // no-op for non-members
+            return Results.NoContent();
         });
 
         api.MapPost("/channels", async (HttpContext http, IChatAuthProvider auth, IChannelStore channels, CreateChannelRequest req) =>
@@ -56,7 +77,8 @@ public static class ChatApiEndpoints
                     ChannelId = slug,
                     Name = req.Name.Trim(),
                     CreatedBy = user.UserId,
-                    IsDefault = false
+                    IsDefault = false,
+                    IsPrivate = req.IsPrivate ?? false
                 });
                 await channels.JoinAsync(created.ChannelId, user.UserId); // creator auto-joins
                 return Results.Created($"{prefix}/api/channels/{created.ChannelId}", ChannelDto.From(created, isMember: true));
@@ -71,8 +93,27 @@ public static class ChatApiEndpoints
         {
             var user = await auth.ResolveUserAsync(http);
             if (!user.IsAuthenticated) return Results.Unauthorized();
-            if (await channels.GetChannelAsync(id) is null) return Results.NotFound();
+            var channel = await channels.GetChannelAsync(id);
+            if (channel is null) return Results.NotFound();
+            // Private channels can't be self-joined — the creator must add you (invite primitive below).
+            if (channel.IsPrivate && !await channels.IsMemberAsync(id, user.UserId))
+                return Results.Forbid();
             await channels.JoinAsync(id, user.UserId);
+            return Results.NoContent();
+        });
+
+        // Invite primitive: the creator adds a member (the only way into a private channel).
+        api.MapPost("/channels/{id}/members", async (
+            string id, HttpContext http, IChatAuthProvider auth, IChannelStore channels, AddMemberRequest req) =>
+        {
+            var user = await auth.ResolveUserAsync(http);
+            if (!user.IsAuthenticated) return Results.Unauthorized();
+            if (string.IsNullOrWhiteSpace(req.UserId)) return Results.BadRequest(new { error = "userId is required." });
+            var channel = await channels.GetChannelAsync(id);
+            if (channel is null) return Results.NotFound();
+            if (!string.Equals(channel.CreatedBy, user.UserId, StringComparison.Ordinal))
+                return Results.Forbid();   // only the creator manages membership
+            await channels.JoinAsync(id, req.UserId.Trim());
             return Results.NoContent();
         });
 
@@ -113,6 +154,51 @@ public static class ChatApiEndpoints
 
             var page = await storage.GetMessagesAsync(id, limit is > 0 and <= 200 ? limit.Value : 50, before);
             return Results.Ok(page.Select(MessageDto.From));
+        });
+
+        // ---- capabilities (UI feature-gating: edit/delete policy) ----
+        api.MapGet("/capabilities", (IOptions<BareChatOptions> opt) =>
+            Results.Ok(new { canEditMessages = opt.Value.Messages.AllowEditing, canDeleteMessages = opt.Value.Messages.AllowDeletion }));
+
+        // ---- message edit / delete (author-only, D6; host policy can disable) ----
+        api.MapPut("/messages/{id:guid}", async (
+            Guid id, HttpContext http, IChatAuthProvider auth,
+            IChatStorageProvider storage, IMessageUpdateNotifier notifier, IOptions<BareChatOptions> opt, EditMessageRequest req) =>
+        {
+            var user = await auth.ResolveUserAsync(http);
+            if (!user.IsAuthenticated) return Results.Unauthorized();
+            if (!opt.Value.Messages.AllowEditing) return Results.StatusCode(StatusCodes.Status403Forbidden);
+            if (string.IsNullOrWhiteSpace(req.Payload)) return Results.BadRequest(new { error = "Payload is required." });
+
+            var existing = await storage.GetMessageAsync(id);
+            if (existing is null) return Results.NotFound();
+            if (!string.Equals(existing.SenderId, user.UserId, StringComparison.Ordinal)) return Results.Forbid();
+            if (existing.IsDeleted) return Results.BadRequest(new { error = "A deleted message cannot be edited." });
+            if (existing.ContentType != MessageType.Text) return Results.BadRequest(new { error = "Only text messages can be edited." });
+
+            var updated = await storage.UpdateMessageAsync(existing with { Payload = req.Payload, EditedAtUtc = DateTime.UtcNow });
+            if (updated is null) return Results.NotFound();
+            await notifier.NotifyUpdatedAsync(updated);
+            return Results.Ok(MessageDto.From(updated));
+        });
+
+        api.MapDelete("/messages/{id:guid}", async (
+            Guid id, HttpContext http, IChatAuthProvider auth,
+            IChatStorageProvider storage, IMessageUpdateNotifier notifier, IOptions<BareChatOptions> opt) =>
+        {
+            var user = await auth.ResolveUserAsync(http);
+            if (!user.IsAuthenticated) return Results.Unauthorized();
+            if (!opt.Value.Messages.AllowDeletion) return Results.StatusCode(StatusCodes.Status403Forbidden);
+
+            var existing = await storage.GetMessageAsync(id);
+            if (existing is null) return Results.NotFound();
+            if (!string.Equals(existing.SenderId, user.UserId, StringComparison.Ordinal)) return Results.Forbid();
+
+            // Soft delete: tombstone the row and clear the payload so the content is no longer retrievable.
+            var updated = await storage.UpdateMessageAsync(existing with { IsDeleted = true, Payload = string.Empty });
+            if (updated is null) return Results.NotFound();
+            await notifier.NotifyUpdatedAsync(updated);
+            return Results.Ok(MessageDto.From(updated));
         });
 
         // ---- blobs (images) ----
@@ -179,6 +265,17 @@ public static class ChatApiEndpoints
         });
     }
 
+    /// <summary>Maps a channel to its DTO, deriving the user's cross-session unread count when subscribed.</summary>
+    private static async Task<ChannelDto> ToDtoAsync(
+        Channel c, IReadOnlyDictionary<string, DateTime> readBaselines, string userId, IChatStorageProvider storage)
+    {
+        // readBaselines contains only the user's subscribed channels → presence == membership.
+        if (!readBaselines.TryGetValue(c.ChannelId, out var since))
+            return ChannelDto.From(c, isMember: false);
+        var unread = await storage.CountMessagesSinceAsync(c.ChannelId, since, excludeSenderId: userId);
+        return ChannelDto.From(c, isMember: true, unread);
+    }
+
     internal static string Slugify(string input)
     {
         var lowered = input.Trim().ToLowerInvariant();
@@ -193,12 +290,16 @@ public static class ChatApiEndpoints
     }
 }
 
-public sealed record CreateChannelRequest(string? ChannelId, string Name);
+public sealed record CreateChannelRequest(string? ChannelId, string Name, bool? IsPrivate = null);
 public sealed record PublishRequest(string ChannelId, string? Payload, string? ContentType);
+public sealed record EditMessageRequest(string Payload);
+public sealed record AddMemberRequest(string UserId);
 
-public sealed record ChannelDto(string Id, string Name, bool IsDefault, string CreatedBy, bool IsMember)
+public sealed record ChannelDto(
+    string Id, string Name, bool IsDefault, string CreatedBy, bool IsMember, int UnreadCount, bool IsPrivate)
 {
-    public static ChannelDto From(Channel c, bool isMember) => new(c.ChannelId, c.Name, c.IsDefault, c.CreatedBy, isMember);
+    public static ChannelDto From(Channel c, bool isMember, int unreadCount = 0) =>
+        new(c.ChannelId, c.Name, c.IsDefault, c.CreatedBy, isMember, unreadCount, c.IsPrivate);
 }
 
 public sealed record MessageDto(

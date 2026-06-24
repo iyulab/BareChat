@@ -151,7 +151,7 @@ public enum MessageType { Text = 0, Image = 1, System = 2 }
 
 ### 채널 모델 (D9)
 
-대화 단위는 **채널 하나뿐**(유저간 DM 없음). 모든 채널은 공개이며, 멤버십은 영속 "구독"(내 채널 목록 + 알림 대상)으로 read/write 권한과 무관하다.
+대화 단위는 **채널 하나뿐**(유저간 DM 없음). 채널은 기본 **공개**이며, 공개 채널의 멤버십은 영속 "구독"(내 채널 목록 + 알림 대상)으로 read/write 권한과 무관하다. **(M3)** `IsPrivate` 채널은 예외 — 비멤버에게 숨겨지고 self-join 불가, 멤버십이 곧 접근권한이며 `ChannelMembershipAuthorizationProvider`(D7 활성화)로 모든 표면에서 게이팅된다.
 
 ```csharp
 namespace BareChat.Core.Domain;

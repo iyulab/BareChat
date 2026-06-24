@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using BareChat.Core.Domain;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace BareChat.Client;
 
@@ -44,6 +45,9 @@ public sealed class BareChatClient : IAsyncDisposable
         });
         if (options.AutomaticReconnect)
             builder.WithAutomaticReconnect();
+
+        // The host serializes hub enums as strings (matching its REST DTOs); read them the same way.
+        builder.AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
         _hub = builder.Build();
         _hub.On<ChatMessage>("ReceiveMessage", message => MessageReceived?.Invoke(message));

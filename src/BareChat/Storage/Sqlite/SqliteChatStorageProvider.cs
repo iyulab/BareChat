@@ -76,6 +76,43 @@ public sealed class SqliteChatStorageProvider : IChatStorageProvider
         return list.Count > 0 ? list[0] : null;
     }
 
+    public async Task<ChatMessage?> UpdateMessageAsync(ChatMessage message, CancellationToken ct = default)
+    {
+        await using var c = _factory.Open();
+        await using var cmd = c.CreateCommand();
+        // Only mutable fields change; sender/channel/created stay put.
+        cmd.CommandText = """
+            UPDATE messages
+            SET payload = $payload, is_deleted = $deleted, edited_at_utc = $edited
+            WHERE message_id = $id
+            """;
+        cmd.Parameters.AddWithValue("$payload", message.Payload);
+        cmd.Parameters.AddWithValue("$deleted", message.IsDeleted ? 1 : 0);
+        cmd.Parameters.AddWithValue("$edited", (object?)(message.EditedAtUtc is { } e ? SqliteChannelStore.Iso(e) : null) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$id", message.MessageId.ToString());
+        var rows = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        return rows == 0 ? null : message;
+    }
+
+    public async Task<int> CountMessagesSinceAsync(
+        string channelId, DateTime afterUtc, string? excludeSenderId = null, CancellationToken ct = default)
+    {
+        await using var c = _factory.Open();
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*) FROM messages
+            WHERE channel_id = $cid
+              AND created_at_utc > $after
+              AND is_deleted = 0
+              AND ($exclude IS NULL OR sender_id <> $exclude)
+            """;
+        cmd.Parameters.AddWithValue("$cid", channelId);
+        cmd.Parameters.AddWithValue("$after", SqliteChannelStore.Iso(afterUtc));
+        cmd.Parameters.AddWithValue("$exclude", (object?)excludeSenderId ?? DBNull.Value);
+        var count = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        return Convert.ToInt32(count, System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     private static async Task<IReadOnlyList<ChatMessage>> ReadMessagesAsync(SqliteCommand cmd, CancellationToken ct)
     {
         var result = new List<ChatMessage>();

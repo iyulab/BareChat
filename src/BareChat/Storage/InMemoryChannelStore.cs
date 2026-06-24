@@ -9,6 +9,8 @@ public sealed class InMemoryChannelStore : IChannelStore
 {
     private readonly ConcurrentDictionary<string, Channel> _channels = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, DateTime>> _members = new(StringComparer.Ordinal);
+    // (channelId, userId) -> explicit last-read; absent until the user marks a channel read.
+    private readonly ConcurrentDictionary<(string, string), DateTime> _lastRead = new();
 
     public Task<IReadOnlyList<Channel>> GetChannelsAsync(CancellationToken ct = default)
         => Task.FromResult<IReadOnlyList<Channel>>(_channels.Values.OrderBy(c => c.CreatedAtUtc).ToList());
@@ -66,4 +68,24 @@ public sealed class InMemoryChannelStore : IChannelStore
 
     public Task<bool> IsMemberAsync(string channelId, string userId, CancellationToken ct = default)
         => Task.FromResult(_members.TryGetValue(channelId, out var set) && set.ContainsKey(userId));
+
+    public Task SetLastReadAtAsync(string channelId, string userId, DateTime readAtUtc, CancellationToken ct = default)
+    {
+        // No-op for non-members — read state belongs to a subscription.
+        if (_members.TryGetValue(channelId, out var set) && set.ContainsKey(userId))
+            _lastRead[(channelId, userId)] = readAtUtc;
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyDictionary<string, DateTime>> GetLastReadAtAsync(string userId, CancellationToken ct = default)
+    {
+        var result = new Dictionary<string, DateTime>(StringComparer.Ordinal);
+        foreach (var (channelId, set) in _members)
+        {
+            if (!set.TryGetValue(userId, out var joinedAt)) continue;
+            // Effective baseline: explicit last-read, else join time.
+            result[channelId] = _lastRead.TryGetValue((channelId, userId), out var read) ? read : joinedAt;
+        }
+        return Task.FromResult<IReadOnlyDictionary<string, DateTime>>(result);
+    }
 }

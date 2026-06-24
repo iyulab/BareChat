@@ -47,7 +47,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPushSubscriptionStore>(sp => new SqlitePushSubscriptionStore(sp.GetRequiredService<SqliteConnectionFactory>()));
 
         services.AddSingleton<IPresenceTracker, InMemoryPresenceTracker>();
-        services.AddSingleton<IChatAuthorizationProvider, AllowAllAuthorizationProvider>();
+        // Visibility-aware default: public channels open to all, private channels gated by membership.
+        services.AddSingleton<IChatAuthorizationProvider>(sp =>
+            new ChannelMembershipAuthorizationProvider(sp.GetRequiredService<IChannelStore>()));
         services.AddSingleton<IChatAuthProvider, HttpUserChatAuthProvider>();
 
         services.AddSingleton<INotificationChannel, InAppChannel>();
@@ -55,8 +57,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IWebPushSender, WebPushSender>();
         services.AddSingleton<IWakeUpNotificationChannel, WebPushChannel>();
         services.AddSingleton<IMessagePublisher, MessagePublisher>();
+        services.AddSingleton<IMessageUpdateNotifier, MessageUpdateNotifier>();
 
-        var signalR = services.AddSignalR();
+        var signalR = services.AddSignalR()
+            // Serialize enums as strings so live payloads match the REST DTOs (contentType "Text"/"Image"/
+            // "System"), which the embedded UI compares by name.
+            .AddJsonProtocol(o => o.PayloadSerializerOptions.Converters.Add(
+                new System.Text.Json.Serialization.JsonStringEnumConverter()));
         configureSignalR?.Invoke(signalR);   // host opts into a backplane (Redis, etc.) here
 
         services.AddHostedService<BareChatInitializer>();

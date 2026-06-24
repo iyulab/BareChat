@@ -114,6 +114,8 @@ BareChat v1.2 기준 확정 설계 결정. 각 항목은 **결정 / 맥락 / 대
 
 **구현.** **기본 채널**(`IsDefault`, seed)은 삭제·이탈 불가, 신규 유저 자동 가입. 사용자 생성 채널은 누구나 생성(slug 중복 불가)·발견·join/leave, **삭제는 생성자만**(+ 호스트 관리자 seam). 저장은 `IChannelStore`(채널/멤버십)로 메시지 저장소와 분리.
 
+**M3 확장 (구현됨, cycle-25..28).** public-only는 M1~M2 범위였고, M3에서 **private 채널**을 추가했다 — `Channel.IsPrivate`, discovery에서 비멤버 숨김, self-join 금지(REST·Hub), 생성자 초대(`POST /channels/{id}/members`), 멤버십=접근권한. 이때 권한 seam(D7)이 "전원 r/w"에서 `ChannelMembershipAuthorizationProvider`(public=전원·private=멤버)로 본격화되었다. 가시성 플래그가 코어로 새어들지 않도록 `IsPrivate`는 도메인 boolean 하나에 그치고, 게이팅 로직은 ASP.NET 패키지의 authz 구현에 격리했다.
+
 **대안.** (1) DM·멀티워크스페이스 포함 — 범위 폭증, YAGNI 위반. (2) 멤버십=접근권한 — public 모델과 모순, private는 P3로 이연.
 
 **결과.** 채널 CRUD가 제품 중심이 되어 **M1로 승격**(아래 매핑). private 채널/역할은 D9 확장으로 M3.

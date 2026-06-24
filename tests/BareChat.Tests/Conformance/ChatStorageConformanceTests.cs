@@ -74,4 +74,79 @@ public abstract class ChatStorageConformanceTests
         Assert.Equal("m1", page[0].Payload);
         Assert.Equal("m2", page[1].Payload);
     }
+
+    // ---- count-since (cross-session unread) ----
+
+    [Fact]
+    public async Task CountMessagesSince_counts_strictly_after_baseline_in_channel()
+    {
+        var store = CreateStore();
+        await store.AddMessageAsync(Msg("general", "old", T0));
+        await store.AddMessageAsync(Msg("general", "new1", T0.AddMinutes(2)));
+        await store.AddMessageAsync(Msg("general", "new2", T0.AddMinutes(3)));
+        await store.AddMessageAsync(Msg("other", "elsewhere", T0.AddMinutes(4)));
+
+        // baseline == T0+1m → "old" (at T0) excluded, both "new" included, other channel ignored
+        Assert.Equal(2, await store.CountMessagesSinceAsync("general", T0.AddMinutes(1)));
+    }
+
+    [Fact]
+    public async Task CountMessagesSince_excludes_own_messages()
+    {
+        var store = CreateStore();
+        await store.AddMessageAsync(Msg("general", "fromOther", T0.AddMinutes(1)) with { SenderId = "other" });
+        await store.AddMessageAsync(Msg("general", "fromMe", T0.AddMinutes(2)) with { SenderId = "me" });
+
+        Assert.Equal(1, await store.CountMessagesSinceAsync("general", T0, excludeSenderId: "me"));
+        Assert.Equal(2, await store.CountMessagesSinceAsync("general", T0));
+    }
+
+    [Fact]
+    public async Task CountMessagesSince_ignores_deleted_messages()
+    {
+        var store = CreateStore();
+        await store.AddMessageAsync(Msg("general", "live", T0.AddMinutes(1)));
+        await store.AddMessageAsync(Msg("general", "gone", T0.AddMinutes(2)) with { IsDeleted = true });
+
+        Assert.Equal(1, await store.CountMessagesSinceAsync("general", T0));
+    }
+
+    // ---- update (edit / soft-delete) ----
+
+    [Fact]
+    public async Task UpdateMessage_persists_mutable_fields()
+    {
+        var store = CreateStore();
+        var saved = await store.AddMessageAsync(Msg("general", "typo", T0));
+        var editedAt = T0.AddMinutes(5);
+
+        var updated = await store.UpdateMessageAsync(saved with { Payload = "fixed", EditedAtUtc = editedAt });
+
+        Assert.NotNull(updated);
+        var got = await store.GetMessageAsync(saved.MessageId);
+        Assert.Equal("fixed", got!.Payload);
+        Assert.Equal(editedAt, got.EditedAtUtc);
+        Assert.False(got.IsDeleted);
+    }
+
+    [Fact]
+    public async Task UpdateMessage_can_soft_delete()
+    {
+        var store = CreateStore();
+        var saved = await store.AddMessageAsync(Msg("general", "secret", T0));
+
+        await store.UpdateMessageAsync(saved with { IsDeleted = true, Payload = "" });
+
+        var got = await store.GetMessageAsync(saved.MessageId);
+        Assert.True(got!.IsDeleted);
+        Assert.Equal("", got.Payload);
+    }
+
+    [Fact]
+    public async Task UpdateMessage_unknown_id_returns_null()
+    {
+        var store = CreateStore();
+        var ghost = Msg("general", "nope", T0);   // never added
+        Assert.Null(await store.UpdateMessageAsync(ghost));
+    }
 }

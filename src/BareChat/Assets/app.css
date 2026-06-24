@@ -68,6 +68,11 @@ body {
   appearance: none; border: 1px solid var(--accent); background: transparent; color: var(--accent);
   border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer;
 }
+.channel__badge {
+  flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 12px; font-weight: 700; line-height: 20px; text-align: center;
+}
 
 /* messages */
 .messages { flex: 1; overflow-y: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -79,6 +84,18 @@ body {
 .msg__image { max-width: 220px; max-height: 280px; border-radius: 10px; display: block; }
 .msg__time { font-size: 10.5px; color: var(--muted); margin-top: 3px; text-align: right; }
 .msg--mine .msg__time { color: rgba(255,255,255,.7); }
+.msg--deleted { color: var(--muted); font-style: italic; background: var(--surface); }
+
+/* author affordances (edit/delete) — toggled by tapping your own message. Tap-to-reveal works on
+   touch (no hover) and desktop alike; kept in normal flow so they never get clipped or intercepted. */
+.msg[data-own-text="1"] { cursor: pointer; }
+.msg__actions { display: none; gap: 6px; margin-top: 6px; justify-content: flex-end; }
+.msg.is-actions-open .msg__actions { display: flex; }
+.msg__action {
+  appearance: none; border: 1px solid var(--line); background: var(--surface-2); color: var(--text);
+  border-radius: 7px; padding: 2px 7px; font-size: 11px; cursor: pointer;
+}
+.msg__action:hover { background: var(--surface); }
 
 /* composer */
 .composer {

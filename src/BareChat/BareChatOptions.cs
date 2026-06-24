@@ -35,6 +35,23 @@ public sealed class BareChatOptions
 
     /// <summary>Web Push (VAPID) configuration. Push stays off until a key pair is supplied.</summary>
     public PushOptions Push { get; set; } = new();
+
+    /// <summary>Message governance (Slack-style retention policy): whether authors may edit/delete.</summary>
+    public MessageOptions Messages { get; set; } = new();
+}
+
+/// <summary>
+/// Message governance. BareChat follows Slack's full-history edit/delete model by default (an author may
+/// edit or delete any of their own messages, marked "edited", with no extra notification). A host can lock
+/// this down — e.g. a compliance environment that forbids altering the record — without touching code.
+/// </summary>
+public sealed class MessageOptions
+{
+    /// <summary>Allow authors to edit their own messages. Default true.</summary>
+    public bool AllowEditing { get; set; } = true;
+
+    /// <summary>Allow authors to delete (soft-tombstone) their own messages. Default true.</summary>
+    public bool AllowDeletion { get; set; } = true;
 }
 
 /// <summary>

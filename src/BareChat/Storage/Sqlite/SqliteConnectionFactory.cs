@@ -83,5 +83,26 @@ public sealed class SqliteConnectionFactory
             CREATE INDEX IF NOT EXISTS ix_push_user ON push_subscriptions (user_id);
             """;
         cmd.ExecuteNonQuery();
+
+        // Migrations (idempotent): SQLite has no "ADD COLUMN IF NOT EXISTS", so add only when absent.
+        AddColumnIfMissing(c, "memberships", "last_read_at_utc", "TEXT NULL");
+        AddColumnIfMissing(c, "channels", "is_private", "INTEGER NOT NULL DEFAULT 0");
+    }
+
+    private static void AddColumnIfMissing(SqliteConnection c, string table, string column, string definition)
+    {
+        using (var info = c.CreateCommand())
+        {
+            info.CommandText = $"PRAGMA table_info({table})";
+            using var r = info.ExecuteReader();
+            while (r.Read())
+            {
+                if (string.Equals(r.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                    return; // already present
+            }
+        }
+        using var alter = c.CreateCommand();
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}";
+        alter.ExecuteNonQuery();
     }
 }
