@@ -157,6 +157,15 @@ public sealed class SqliteChatStorageProvider : IChatStorageProvider
         return result;
     }
 
+    public async Task DeleteChannelMessagesAsync(string channelId, CancellationToken ct = default)
+    {
+        await using var c = _factory.Open();
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "DELETE FROM messages WHERE channel_id = $cid";
+        cmd.Parameters.AddWithValue("$cid", channelId);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
     private static async Task<IReadOnlyList<ChatMessage>> ReadMessagesAsync(SqliteCommand cmd, CancellationToken ct)
     {
         var result = new List<ChatMessage>();

@@ -111,7 +111,7 @@ await httpClient.PostAsJsonAsync($"{baseUrl}/chat/messages", new
 | `GET /chat/api/channels/mine` | 내가 구독한 채널 |
 | `POST /chat/api/channels` `{name, channelId?}` | 채널 생성(slug 자동, 생성자 자동 가입) · 중복 409 |
 | `POST /chat/api/channels/{id}/join` · `/leave` | 가입 · 이탈(기본 채널 이탈 불가) |
-| `DELETE /chat/api/channels/{id}` | 삭제(생성자만, 기본 채널 불가) |
+| `DELETE /chat/api/channels/{id}` | 삭제(생성자만, 기본 채널 불가) · 채널 메시지도 함께 정리(orphan 방지: slug 재사용 시 과거 메시지 미부활) |
 | `GET /chat/api/channels/{id}/messages?limit&before` | 메시지 히스토리(oldest-first) |
 | `POST /chat/messages` `{channelId, payload, contentType?}` | 프로그래밍 발행(기본 `System`, 이벤트 피드) |
 | `POST /chat/api/upload` (multipart `file`) | 이미지 업로드 → `{blobId, url}`. **매직바이트 스니핑 + 화이트리스트(PNG/JPEG/GIF/WebP만)** — 클라이언트 Content-Type 무시, SVG/HTML 거부 |
@@ -119,6 +119,7 @@ await httpClient.PostAsJsonAsync($"{baseUrl}/chat/messages", new
 
 ### SignalR Hub (`/chat/hub`)
 - 클라이언트 호출: `SendMessage(channelId, text)` · `SendImage(channelId, url)` · `JoinChannel(channelId)` · `LeaveChannel(channelId)`
+- 입력 검증(서버 신뢰경계): `SendMessage`/`SendImage` 는 빈/공백 `text`·`url` 을 `HubException` 으로 거부(REST 편집 정책과 일관 — UI 가드에 의존하지 않음)
 - 서버 이벤트: `ReceiveMessage(message)`
 - 연결 시 presence 등록 + 기본 채널 자동 가입. 전송 폴백(WS→SSE→Long Polling)은 SignalR 기본.
 

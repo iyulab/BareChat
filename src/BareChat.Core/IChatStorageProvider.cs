@@ -31,6 +31,14 @@ public interface IChatStorageProvider
         string channelId, DateTime afterUtc, string? excludeSenderId = null, CancellationToken ct = default);
 
     /// <summary>
+    /// Removes every message belonging to a channel. Called when a channel is deleted so its history does not
+    /// outlive it: an orphaned row would otherwise resurface if the slug is later reused, and — for a private
+    /// channel — leak past content. The default is a no-op (for stores that don't persist messages); any
+    /// backend that does persist messages MUST override this to keep channel deletion consistent.
+    /// </summary>
+    Task DeleteChannelMessagesAsync(string channelId, CancellationToken ct = default) => Task.CompletedTask;
+
+    /// <summary>
     /// Batch variant of <see cref="CountMessagesSinceAsync(string, DateTime, string?, CancellationToken)"/>:
     /// counts unread messages for many channels at once, each against its own read baseline
     /// (<paramref name="baselinesByChannel"/> maps channelId → "after" timestamp). Rendering a user's channel

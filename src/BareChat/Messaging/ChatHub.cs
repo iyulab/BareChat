@@ -57,6 +57,10 @@ public sealed class ChatHub : Hub
     public async Task SendMessage(string channelId, string payload)
     {
         var user = await RequireUserAsync();
+        // The hub is a trust boundary: the client's own empty-text guard can't be relied on (other shells,
+        // the SDK, or a direct invocation could send blank text). Mirror the REST edit policy — reject blank.
+        if (string.IsNullOrWhiteSpace(payload))
+            throw new HubException("Message payload is required.");
         if (!await _authz.CanWriteAsync(user, channelId))
             throw new HubException("Not allowed to write to this channel.");
         if (await _channels.GetChannelAsync(channelId) is null)
@@ -76,6 +80,9 @@ public sealed class ChatHub : Hub
     public async Task SendImage(string channelId, string url)
     {
         var user = await RequireUserAsync();
+        // Same trust-boundary reasoning as SendMessage: an image message must carry a blob url.
+        if (string.IsNullOrWhiteSpace(url))
+            throw new HubException("Image url is required.");
         if (!await _authz.CanWriteAsync(user, channelId))
             throw new HubException("Not allowed to write to this channel.");
         if (await _channels.GetChannelAsync(channelId) is null)

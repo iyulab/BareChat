@@ -131,7 +131,7 @@ public static class ChatApiEndpoints
             return Results.NoContent();
         });
 
-        api.MapDelete("/channels/{id}", async (string id, HttpContext http, IChatAuthProvider auth, IChannelStore channels) =>
+        api.MapDelete("/channels/{id}", async (string id, HttpContext http, IChatAuthProvider auth, IChannelStore channels, IChatStorageProvider storage) =>
         {
             var user = await auth.ResolveUserAsync(http);
             if (!user.IsAuthenticated) return Results.Unauthorized();
@@ -141,6 +141,9 @@ public static class ChatApiEndpoints
             if (!string.Equals(channel.CreatedBy, user.UserId, StringComparison.Ordinal))
                 return Results.Forbid();
             await channels.DeleteChannelAsync(id);
+            // Don't let history outlive the channel: a reused slug must not resurface old (possibly private)
+            // messages. Channel/message stores are separate seams, so the deletion is orchestrated here.
+            await storage.DeleteChannelMessagesAsync(id);
             return Results.NoContent();
         });
 

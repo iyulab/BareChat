@@ -187,4 +187,32 @@ public abstract class ChatStorageConformanceTests
         var ghost = Msg("general", "nope", T0);   // never added
         Assert.Null(await store.UpdateMessageAsync(ghost));
     }
+
+    // ---- channel deletion (orphan prevention) ----
+
+    [Fact]
+    public async Task DeleteChannelMessages_removes_only_that_channels_messages()
+    {
+        var store = CreateStore();
+        await store.AddMessageAsync(Msg("doomed", "a", T0));
+        await store.AddMessageAsync(Msg("doomed", "b", T0.AddMinutes(1)));
+        await store.AddMessageAsync(Msg("keep", "c", T0.AddMinutes(2)));
+
+        await store.DeleteChannelMessagesAsync("doomed");
+
+        Assert.Empty(await store.GetMessagesAsync("doomed"));
+        Assert.Equal(0, await store.CountMessagesSinceAsync("doomed", T0.AddYears(-1)));
+        // an unrelated channel is untouched
+        var keep = await store.GetMessagesAsync("keep");
+        Assert.Single(keep);
+        Assert.Equal("c", keep[0].Payload);
+    }
+
+    [Fact]
+    public async Task DeleteChannelMessages_on_channel_with_no_messages_is_noop()
+    {
+        var store = CreateStore();
+        await store.DeleteChannelMessagesAsync("never-existed");   // must not throw
+        Assert.Empty(await store.GetMessagesAsync("never-existed"));
+    }
 }

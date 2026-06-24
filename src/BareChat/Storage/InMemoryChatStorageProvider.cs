@@ -52,4 +52,12 @@ public sealed class InMemoryChatStorageProvider : IChatStorageProvider
             && (excludeSenderId is null || m.SenderId != excludeSenderId));
         return Task.FromResult(count);
     }
+
+    public Task DeleteChannelMessagesAsync(string channelId, CancellationToken ct = default)
+    {
+        foreach (var (id, m) in _messages)
+            if (m.ChannelId == channelId)
+                _messages.TryRemove(id, out _);
+        return Task.CompletedTask;
+    }
 }
