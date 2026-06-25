@@ -34,12 +34,14 @@
 | `auth` | `{ token: string }` | SignalR 연결 전 토큰 보관 → `?access_token=` 으로 연결 |
 | `focusChannel` | `{ channelId: string }` | 해당 채널로 전환 |
 | `panelVisible` | `{ visible: boolean }` | 패널 표시 상태 갱신. `true` 면 현재 채널 unread 리셋 |
+| `theme` | `{ theme: "light" \| "dark" }` | `<html data-theme>` 갱신 → 호스트 테마에 맞춰 light/dark 전환. 초기 로드는 `?theme=` 로 무플래시 적용 가능 |
 
 ```jsonc
 // WPF → JS
 { "type": "auth", "token": "eyJhbGciOi..." }
 { "type": "panelVisible", "visible": true }
 { "type": "focusChannel", "channelId": "line-a" }
+{ "type": "theme", "theme": "light" }
 ```
 
 ---

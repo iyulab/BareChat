@@ -11,6 +11,24 @@
   --bubble-out: #2563eb;
 }
 
+/* Dark is the default. An embedding host (WPF / a host page) can force a theme via
+   ?theme=light|dark (applied pre-paint in index.html) or the "theme" bridge message,
+   which sets <html data-theme="…">. Browsers/PWA keep the dark default. */
+:root { color-scheme: dark; }
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f6f7f9;
+  --surface-2: #eaecef;
+  --line: #e1e4e9;
+  --text: #1b2130;
+  --muted: #687184;
+  --accent: #2563eb;
+  --accent-ink: #ffffff;
+  --bubble-in: #eef1f4;
+  --bubble-out: #2563eb;
+}
+
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
 body {

@@ -529,6 +529,12 @@
     });
   }
 
+  // Host-forced theme (light/dark). Sets <html data-theme>; CSS variables switch accordingly.
+  // Ignored values leave the current/default theme untouched.
+  function applyTheme(theme) {
+    if (theme === "light" || theme === "dark") document.documentElement.setAttribute("data-theme", theme);
+  }
+
   // ---------- WPF native bridge (bridge-protocol.md) ----------
   const bridge = {
     host: window.chrome && window.chrome.webview ? window.chrome.webview : null,
@@ -547,6 +553,7 @@
       this.host.addEventListener("message", async (e) => {
         const msg = e.data || {};
         if (msg.type === "auth") { this.token = msg.token; resetConnection(); }
+        else if (msg.type === "theme") { applyTheme(msg.theme); }
         else if (msg.type === "panelVisible") {
           this.panelVisible = !!msg.visible;
           // Becoming visible means the user is now reading the open channel — mark it read and

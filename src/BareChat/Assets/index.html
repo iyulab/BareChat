@@ -12,6 +12,12 @@
   <script>
     window.BARECHAT_BASE = "{{BASE}}";
     window.BARECHAT_APP_NAME = "{{APP_NAME}}";
+    // Apply a host-forced theme before first paint (no flash). A host (e.g. WPF) passes ?theme=light|dark
+    // to match its own theme; runtime changes arrive via the "theme" bridge message. Default stays dark.
+    (function () {
+      var t = new URLSearchParams(location.search).get("theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    })();
   </script>
 </head>
 <body>

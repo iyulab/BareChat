@@ -10,7 +10,7 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
 
     <!-- Centralized package metadata (0.x per versioning policy; majors are a manual/community decision). -->
-    <Version>0.1.1</Version>
+    <Version>0.2.0</Version>
     <Authors>iyulab</Authors>
     <Product>BareChat</Product>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
