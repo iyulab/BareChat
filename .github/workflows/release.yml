@@ -1,0 +1,117 @@
+name: Release
+
+# Publish trigger — either a pushed v* tag, or a manual workflow_dispatch with the
+# version (use the latter to release a version whose tag predates this workflow,
+# e.g. v0.2.0). Packs the three shipping libraries, pushes them to NuGet.org, then
+# creates the matching GitHub Release if absent. Routine build/test on `main`
+# stays in ci.yml.
+#
+# Prerequisites before the first successful run:
+#   1. NUGET_API_KEY secret available to this repo (org-level secret, granted to the
+#      repository, or a repo secret). Referenced below as secrets.NUGET_API_KEY.
+#   2. Package IDs are set explicitly in each csproj: BareChat / BareChat.Core /
+#      BareChat.Client. All three were free on NuGet.org as of v0.2.0; a prefix
+#      reservation (if any) is only enforced at first push.
+#   3. The resolved version must match <Version> in src/Directory.Build.props
+#      (verified below). For workflow_dispatch the tag v<version> must already exist.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish — must equal <Version> in src/Directory.Build.props, and tag v<version> must exist'
+        required: true
+
+permissions:
+  contents: write   # required to create the GitHub Release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never interrupt a publish mid-flight
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Same cache shape as ci.yml. (Global policy prefers a lock-file hash key;
+      # packages.lock.json is not yet adopted — revisit when RestorePackagesWithLockFile lands.)
+      - name: Cache NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      # Resolve the target version (tag push vs manual dispatch) and fail fast if it
+      # disagrees with the centralized <Version>, so a wrong version can never reach NuGet.org.
+      - name: Resolve & verify version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          PROJ="$(grep -oP '<Version>\K[^<]+' src/Directory.Build.props)"
+          echo "resolved=$V project=$PROJ"
+          if [ "$V" != "$PROJ" ]; then
+            echo "::error::Version $V does not match <Version>$PROJ</Version> in src/Directory.Build.props"
+            exit 1
+          fi
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore BareChat.slnx
+
+      - name: Build
+        run: dotnet build BareChat.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test BareChat.slnx -c Release --no-build --nologo
+
+      # Pack only the three shipping libraries (samples/tests excluded). Symbols ship
+      # as .snupkg; NuGet.org links them to the matching .nupkg pushed below.
+      - name: Pack
+        run: |
+          for proj in \
+            src/BareChat.Core/BareChat.Core.csproj \
+            src/BareChat/BareChat.csproj \
+            src/BareChat.Client/BareChat.Client.csproj; do
+            dotnet pack "$proj" -c Release --no-build -o ./artifacts \
+              -p:IncludeSymbols=true -p:SymbolPackageFormat=snupkg
+          done
+
+      # --skip-duplicate makes re-runs (same version) idempotent instead of failing.
+      - name: Push to NuGet
+        run: |
+          dotnet nuget push "./artifacts/*.nupkg" \
+            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      # Uses the runner's pre-installed gh CLI instead of a third-party action — no
+      # supply-chain surface to pin/maintain. No actions/upload-artifact is used
+      # (pack → push happens in this one job), so there are no Actions artifacts to
+      # retain or delete; the global retention policy is satisfied by construction.
+      # NuGet.org is the canonical channel; append `./artifacts/*.nupkg` to the
+      # command below only if you also want them attached as Release assets.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — skipping."
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag
+          fi

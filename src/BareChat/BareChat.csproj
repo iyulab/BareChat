@@ -2,6 +2,8 @@
 
   <!-- TFM/Nullable/ImplicitUsings/LangVersion and package metadata come from Directory.Build.props. -->
   <PropertyGroup>
+    <!-- Explicit package ID — the published consumer contract, decoupled from the assembly name. -->
+    <PackageId>BareChat</PackageId>
     <Description>BareChat ASP.NET Core add-on: SignalR hub, REST, embedded UI, SQLite storage, Web Push.</Description>
   </PropertyGroup>
 

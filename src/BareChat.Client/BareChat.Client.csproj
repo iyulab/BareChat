@@ -2,6 +2,8 @@
 
   <!-- TFM/Nullable/ImplicitUsings/LangVersion and package metadata come from Directory.Build.props. -->
   <PropertyGroup>
+    <!-- Explicit package ID — the published consumer contract, decoupled from the assembly name. -->
+    <PackageId>BareChat.Client</PackageId>
     <Description>BareChat .NET client SDK: thin SignalR + REST wrapper for backend processes.</Description>
   </PropertyGroup>
 
